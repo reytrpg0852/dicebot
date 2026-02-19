@@ -39,8 +39,9 @@ def safe_eval(expr):
 
     return _eval(ast.parse(expr, mode="eval").body)
 
+
 # =========================
-# roll_dice（後方置換・安定）
+# roll_dice
 # =========================
 def roll_dice(expression):
 
@@ -55,8 +56,8 @@ def roll_dice(expression):
         count = int(match.group(1))
         sides = int(match.group(2))
 
-        # 上限制御（無反応）
-        if count < 1 or count > 100:
+        # nを1000に変更
+        if count < 1 or count > 1000:
             return expression, None
         if sides < 1 or sides > 1000:
             return expression, None
@@ -84,8 +85,8 @@ def roll_b_dice(expression, compare=None):
     count = int(match.group(1))
     sides = int(match.group(2))
 
-    # 上限制御（無反応）
-    if count < 1 or count > 100:
+    # nを1000に変更
+    if count < 1 or count > 1000:
         return None, None
     if sides < 1 or sides > 1000:
         return None, None
@@ -162,7 +163,7 @@ async def rr(ctx, times: int, *, arg):
 
     mention = ctx.author.mention
 
-    if times < 1 or times > 100:
+    if times < 1 or times > MAX_RR:
         return
 
     expression = arg.strip()
