@@ -38,14 +38,19 @@ def safe_eval(expr):
     return _eval(node.body)
 
 
-# ★ 差し替え済みダイス処理部分
+# =========================
+# ★ 修正版ダイス処理部分
+# =========================
 def roll_dice(expression):
-    dice_pattern = r"(\d+)d(\d+)"
+
+    dice_pattern = re.compile(r"(\d+)d(\d+)")
     expanded_expr = expression
     total_expr = expression
 
-    def replace_once(match):
-        nonlocal expanded_expr, total_expr
+    while True:
+        match = dice_pattern.search(expanded_expr)
+        if not match:
+            break
 
         count = int(match.group(1))
         sides = int(match.group(2))
@@ -53,17 +58,24 @@ def roll_dice(expression):
         rolls = [random.randint(1, sides) for _ in range(count)]
         roll_sum = sum(rolls)
 
+        # 表示用
         if count == 1:
             detail = f"{count}d{sides}({rolls[0]})"
         else:
             detail = f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")"
 
-        expanded_expr = re.sub(dice_pattern, detail, expanded_expr, count=1)
-        total_expr = re.sub(dice_pattern, str(roll_sum), total_expr, count=1)
+        # 1個ずつ確実に置換
+        expanded_expr = (
+            expanded_expr[:match.start()] +
+            detail +
+            expanded_expr[match.end():]
+        )
 
-        return detail
-
-    re.sub(dice_pattern, replace_once, expression)
+        total_expr = (
+            total_expr[:match.start()] +
+            str(roll_sum) +
+            total_expr[match.end():]
+        )
 
     total = safe_eval(total_expr)
     return expanded_expr, total
@@ -108,7 +120,6 @@ async def r(ctx, *, arg=None):
 
     mention = ctx.author.mention
 
-    # !r のみで 1d100
     if not arg:
         arg = "1d100"
 
