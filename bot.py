@@ -3,8 +3,8 @@ import random
 import re
 import ast
 import operator
-
 import os
+
 TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
@@ -54,9 +54,6 @@ async def on_message(message):
 
     raw = message.content[2:].strip()
 
-    # ----------------------------------
-    # ① 引数なし → 1d100
-    # ----------------------------------
     if raw == "":
         expr = "1d100"
         comment = ""
@@ -67,7 +64,10 @@ async def on_message(message):
         comment = parts[1] if len(parts) > 1 else ""
 
     try:
-        comparison_match = re.search(r"(>=|<=|==|=|>|<)", expr)
+        # -----------------------------
+        # 比較処理（安全版）
+        # -----------------------------
+        comparison_match = re.search(r"(>=|<=|==|>|<|=)", expr)
         comparator = None
         compare_value = None
 
@@ -77,103 +77,70 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        display_expr = expr  # ← 元の式保存
+        display_expr = expr
+        dice_pattern = r"(\d+)d(\d+)"
 
-        dice_pattern = r"(\d+)([db])(\d+)"
-
+        # -----------------------------
+        # ダイス展開
+        # -----------------------------
         while True:
             match = re.search(dice_pattern, expr)
             if not match:
                 break
 
-            n_expr, mode, m_expr = match.groups()
-            n = int(n_expr)
-            m = int(m_expr)
-
+            n, m = map(int, match.groups())
             rolls = roll_dice(n, m)
+            total = sum(rolls)
 
-            if mode == "d":
-                total = sum(rolls)
-                roll_text = "+".join(str(r) for r in rolls)
+            roll_text = "+".join(str(r) for r in rolls)
 
-                # display側も置換
-                display_expr = display_expr.replace(
-                    f"{n_expr}d{m_expr}",
-                    f"{n_expr}d{m_expr}({roll_text})",
-                    1
-                )
+            # 計算用置換
+            expr = expr[:match.start()] + str(total) + expr[match.end():]
 
-                expr = expr[:match.start()] + str(total) + expr[match.end():]
+            # 表示用置換（位置指定）
+            d_match = re.search(dice_pattern, display_expr)
+            display_expr = (
+                display_expr[:d_match.start()] +
+                f"{n}d{m}({roll_text})" +
+                display_expr[d_match.end():]
+            )
 
-            else:
-                remaining_expr = expr[match.end():]
-                new_values = []
-                for r in rolls:
-                    temp_expr = str(r) + remaining_expr
-                    val = safe_eval(temp_expr)
-                    new_values.append(val)
+        # -----------------------------
+        # 計算
+        # -----------------------------
+        result = round(safe_eval(expr), 3)
 
-                display_expr = display_expr.replace(
-                    f"{n_expr}b{m_expr}",
-                    f"{n_expr}b{m_expr}({','.join(str(r) for r in new_values)})",
-                    1
-                )
+        # ✅ 整数なら .0 を消す
+        if result == int(result):
+            result = int(result)
 
-                breakdown = new_values
-                expr = None
-                break
+        # -----------------------------
+        # 比較判定
+        # -----------------------------
+        compare_text = ""
+        if comparator:
+            if comparator in ["=", "=="]:
+                success = result == compare_value
+            elif comparator == ">":
+                success = result > compare_value
+            elif comparator == "<":
+                success = result < compare_value
+            elif comparator == ">=":
+                success = result >= compare_value
+            elif comparator == "<=":
+                success = result <= compare_value
 
-        if expr is not None:
-            result = round(safe_eval(expr), 3)
+            compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
-            if comparator:
-                if comparator in ["=", "=="]:
-                    success = result == compare_value
-                elif comparator == ">":
-                    success = result > compare_value
-                elif comparator == "<":
-                    success = result < compare_value
-                elif comparator == ">=":
-                    success = result >= compare_value
-                elif comparator == "<=":
-                    success = result <= compare_value
-
-                msg = (
-                    f"{display_expr}\n"
-                    f"Total: {result}\n"
-                    f"Result: {'Success' if success else 'Fail'}"
-                )
-            else:
-                msg = f"{display_expr}\nTotal: {result}"
-
-        else:
-            breakdown = [round(x, 3) for x in breakdown]
-
-            if comparator:
-                success_count = 0
-                for v in breakdown:
-                    if comparator in ["=", "=="] and v == compare_value:
-                        success_count += 1
-                    elif comparator == ">" and v > compare_value:
-                        success_count += 1
-                    elif comparator == "<" and v < compare_value:
-                        success_count += 1
-                    elif comparator == ">=" and v >= compare_value:
-                        success_count += 1
-                    elif comparator == "<=" and v <= compare_value:
-                        success_count += 1
-
-                msg = (
-                    f"{display_expr}\n"
-                    f"Success Count: {success_count}"
-                )
-            else:
-                msg = f"{display_expr}"
-
+        # -----------------------------
+        # 出力フォーマット
+        # -----------------------------
         if comment:
-            msg += f"\n💬 {comment}"
+            output = f"{comment}：{display_expr}\nTotal：**{result}**{compare_text}"
+        else:
+            output = f"{display_expr}\nTotal：**{result}**{compare_text}"
 
-        await message.channel.send(f"{message.author.mention}\n{msg}")
+        await message.channel.send(output)
 
     except Exception as e:
         await message.channel.send(f"Error: {e}")
