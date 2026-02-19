@@ -55,9 +55,9 @@ async def on_message(message):
         comment = parts[1] if len(parts) > 1 else ""
 
     try:
-        # -------------------
+        # -------------------------
         # 比較処理
-        # -------------------
+        # -------------------------
         comparison_match = re.search(r"(>=|<=|==|>|<|=)", expr)
         comparator = None
         compare_value = None
@@ -68,10 +68,10 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        # -------------------
-        # ダイス展開（完全安定版）
-        # -------------------
-        dice_pattern = r"(\d+)d(\d+)"
+        # -------------------------
+        # ダイス展開（完全修正版）
+        # -------------------------
+        dice_pattern = r"\b(\d+)d(\d+)\b"
 
         display_parts = []
 
@@ -81,31 +81,28 @@ async def on_message(message):
             total = sum(rolls)
             roll_text = "+".join(map(str, rolls))
 
-            display_parts.append(
-                f"{n}d{m}({roll_text})"
-            )
-
+            display_parts.append(f"{n}d{m}({roll_text})")
             return str(total)
 
-        # 計算用式
+        # 計算式生成
         calc_expr = re.sub(dice_pattern, dice_replacer, expr)
 
-        # 表示用式（順番に置き換える）
+        # 表示式生成
         display_expr = expr
         for part in display_parts:
             display_expr = re.sub(dice_pattern, part, display_expr, count=1)
 
-        # -------------------
+        # -------------------------
         # 計算
-        # -------------------
+        # -------------------------
         result = round(safe_eval(calc_expr), 3)
 
         if result == int(result):
             result = int(result)
 
-        # -------------------
-        # 比較判定
-        # -------------------
+        # -------------------------
+        # 比較
+        # -------------------------
         compare_text = ""
         if comparator:
             if comparator in ["=", "=="]:
@@ -121,9 +118,9 @@ async def on_message(message):
 
             compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
-        # -------------------
-        # 出力（メンションあり）
-        # -------------------
+        # -------------------------
+        # 出力（メンション付き）
+        # -------------------------
         if comment:
             output = (
                 f"{message.author.mention}\n"
