@@ -124,13 +124,19 @@ async def r(ctx, *, arg=None):
         await ctx.send(f"{mention}\n{result}")
         return
 
+    # ===== dダイス比較式修正 =====
     compare_match = COMPARE_PATTERN.search(expression)
-    expanded_expr, total = roll_dice(expression)
+    if compare_match:
+        op, target = compare_match.groups()
+        dice_expr = expression[:compare_match.start()]
+    else:
+        dice_expr = expression
+
+    expanded_expr, total = roll_dice(dice_expr)
     if total is None:
         return
 
     if compare_match:
-        op, target = compare_match.groups()
         success = eval(f"{total}{op}{target}")
         suffix = f"Total：**{total}**\nResult：**{'Success' if success else 'Fail'}**"
     else:
@@ -175,14 +181,20 @@ async def rr(ctx, times: int, *, arg):
         await ctx.send(f"{mention}\n{result}")
         return
 
-    # ===== dダイス修正部分 =====
+    # ===== dダイス比較式修正 =====
     compare_match = COMPARE_PATTERN.search(expression)
+    if compare_match:
+        op, target = compare_match.groups()
+        dice_expr = expression[:compare_match.start()]
+    else:
+        dice_expr = expression
+
     lines = []
     total_sum = 0
     success_total = 0
 
     for _ in range(times):
-        expanded_expr, total = roll_dice(expression)
+        expanded_expr, total = roll_dice(dice_expr)
         if total is None:
             return
 
@@ -190,9 +202,8 @@ async def rr(ctx, times: int, *, arg):
         lines.append(f"Total : {total}")
 
         if compare_match:
-            op, target = compare_match.groups()
             result = eval(f"{total}{op}{target}")
-            lines.append(f"Result : {'Success' if result else 'Fail'}")
+            lines.append(f"Result : **{'Success' if result else 'Fail'}**")
             if result:
                 success_total += 1
         else:
@@ -201,7 +212,7 @@ async def rr(ctx, times: int, *, arg):
     body = "\n".join(lines)
 
     if compare_match:
-        suffix = f"Success : {success_total}"
+        suffix = f"Success : **{success_total}**"
     else:
         suffix = f"Grand Total：**{total_sum}**"
 
