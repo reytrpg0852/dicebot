@@ -45,12 +45,17 @@ def safe_eval(expr):
     return _eval(ast.parse(expr, mode="eval").body)
 
 # =========================
-# 500文字制限処理
+# 500文字制限処理（修正版）
 # =========================
-def shorten_output(text, suffix=""):
-    if len(text) <= 500:
-        return text
-    return text[:50] + "......\n" + suffix
+def shorten_output(body, suffix=""):
+    full_text = body
+    if suffix:
+        full_text += "\n" + suffix
+
+    if len(full_text) <= 500:
+        return full_text
+
+    return body[:50] + "......\n" + suffix
 
 # =========================
 # dダイス
@@ -133,9 +138,9 @@ async def r(ctx, *, arg=None):
 
             body = f"{base_expr}({','.join(map(str, rolls))}){op}{target}"
             suffix = f"Result：**{success}success**"
-            body = shorten_output(body, suffix)
+            result = shorten_output(body, suffix)
 
-            await ctx.send(f"{mention}\n{body}")
+            await ctx.send(f"{mention}\n{result}")
             return
 
         rolls, _ = roll_b_dice(expression)
@@ -143,8 +148,9 @@ async def r(ctx, *, arg=None):
             return
 
         body = f"{expression}(" + ",".join(map(str, rolls)) + ")"
-        body = shorten_output(body)
-        await ctx.send(f"{mention}\n{body}")
+        result = shorten_output(body)
+
+        await ctx.send(f"{mention}\n{result}")
         return
 
     # ---- dダイス ----
@@ -156,12 +162,11 @@ async def r(ctx, *, arg=None):
         op, target = compare_match.groups()
         success = eval(f"{total}{op}{target}")
         suffix = f"Total：**{total}**\nResult：**{'Success' if success else 'Fail'}**"
-        body = shorten_output(expanded_expr, suffix)
     else:
         suffix = f"Total：**{total}**"
-        body = shorten_output(expanded_expr, suffix)
 
-    await ctx.send(f"{mention}\n{body}")
+    result = shorten_output(expanded_expr, suffix)
+    await ctx.send(f"{mention}\n{result}")
 
 # =========================
 # !rr
@@ -191,8 +196,7 @@ async def rr(ctx, times: int, *, arg):
 
         if compare_match:
             op, target = compare_match.groups()
-            success = eval(f"{total}{op}{target}")
-            if success:
+            if eval(f"{total}{op}{target}"):
                 success_total += 1
         else:
             total_sum += total
@@ -204,9 +208,8 @@ async def rr(ctx, times: int, *, arg):
     else:
         suffix = f"Grand Total：**{total_sum}**"
 
-    body = shorten_output(body, suffix)
-
-    await ctx.send(f"{mention}\n{body}")
+    result = shorten_output(body, suffix)
+    await ctx.send(f"{mention}\n{result}")
 
 # =========================
 TOKEN = os.getenv("DISCORD_TOKEN")
