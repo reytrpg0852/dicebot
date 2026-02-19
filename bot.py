@@ -13,15 +13,20 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 MAX_RR = 100
 
+# ===== 事前コンパイル =====
+DICE_PATTERN = re.compile(r"(\d+)d(\d+)")
+COMPARE_PATTERN = re.compile(r"(>=|<=|==|>|<)(\d+)")
+
 operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
-    ast.Div: operator.truediv,  # 小数対応
+    ast.Div: operator.truediv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
     ast.USub: operator.neg
 }
+
 
 def safe_eval(expr):
     def _eval(node):
@@ -31,30 +36,24 @@ def safe_eval(expr):
             return operators[type(node.op)](_eval(node.left), _eval(node.right))
         elif isinstance(node, ast.UnaryOp):
             return operators[type(node.op)](_eval(node.operand))
-        else:
-            raise TypeError(node)
+        raise TypeError(node)
 
-    node = ast.parse(expr, mode="eval")
-    return _eval(node.body)
+    return _eval(ast.parse(expr, mode="eval").body)
 
 
 # =========================
-# 完全安定版 roll_dice
+# 安定版 roll_dice（後方置換）
 # =========================
 def roll_dice(expression):
 
-    dice_pattern = re.compile(r"(\d+)d(\d+)")
-    matches = list(dice_pattern.finditer(expression))
-
+    matches = list(DICE_PATTERN.finditer(expression))
     if not matches:
         return expression, safe_eval(expression)
 
     expanded_expr = expression
     total_expr = expression
 
-    # 後ろから置換（インデックスズレ防止）
     for match in reversed(matches):
-
         count = int(match.group(1))
         sides = int(match.group(2))
 
@@ -71,8 +70,7 @@ def roll_dice(expression):
         expanded_expr = expanded_expr[:start] + detail + expanded_expr[end:]
         total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
 
-    total = safe_eval(total_expr)
-    return expanded_expr, total
+    return expanded_expr, safe_eval(total_expr)
 
 
 def roll_b_dice(expression, compare=None):
@@ -87,17 +85,11 @@ def roll_b_dice(expression, compare=None):
     rolls = [random.randint(1, sides) for _ in range(count)]
 
     if compare:
-        success = 0
-        for r in rolls:
-            if eval(f"{r}{compare}"):
-                success += 1
+        success = sum(1 for r in rolls if eval(f"{r}{compare}"))
         return rolls, success
 
     if tail:
-        results = []
-        for r in rolls:
-            value = safe_eval(str(r) + tail)
-            results.append(value)
+        results = [safe_eval(str(r) + tail) for r in rolls]
         return rolls, results
 
     return rolls, None
@@ -113,12 +105,8 @@ def apply_limit(text, final_line):
 async def r(ctx, *, arg=None):
 
     mention = ctx.author.mention
-
-    if not arg:
-        arg = "1d100"
-
-    expression = arg.strip()
-    compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
+    expression = (arg or "1d100").strip()
+    compare_match = COMPARE_PATTERN.search(expression)
 
     if "b" in expression:
 
@@ -127,18 +115,16 @@ async def r(ctx, *, arg=None):
             base_expr = expression.split(op)[0]
             rolls, success = roll_b_dice(base_expr, op + target)
 
-            result = f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
-            result += f"Result：**{success}success**"
+            result = (
+                f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
+                f"Result：**{success}success**"
+            )
             await ctx.send(f"{mention}\n{result}")
             return
 
         rolls, results = roll_b_dice(expression)
-
-        if results:
-            output = f"**{expression}(" + ",".join(map(str, results)) + ")**"
-        else:
-            output = f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
-
+        values = results if results else rolls
+        output = f"**{expression}(" + ",".join(map(str, values)) + ")**"
         await ctx.send(f"{mention}\n{output}")
         return
 
@@ -149,8 +135,11 @@ async def r(ctx, *, arg=None):
         expanded_expr, total = roll_dice(base_expr)
         success = eval(f"{total}{op}{target}")
 
-        text = f"{expanded_expr}\nTotal：**{total}**\n"
-        text += f"**Result**：**{'Success' if success else 'Fail'}**"
+        text = (
+            f"{expanded_expr}\n"
+            f"Total：**{total}**\n"
+            f"**Result**：**{'Success' if success else 'Fail'}**"
+        )
         await ctx.send(f"{mention}\n{text}")
         return
 
@@ -169,7 +158,7 @@ async def rr(ctx, times: int, *, arg):
         return
 
     expression = arg.strip()
-    compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
+    compare_match = COMPARE_PATTERN.search(expression)
 
     output_lines = []
     total_sum = 0
@@ -184,15 +173,17 @@ async def rr(ctx, times: int, *, arg):
                 base_expr = expression.split(op)[0]
                 rolls, success = roll_b_dice(base_expr, op + target)
 
-                output_lines.append(f"{base_expr}({','.join(map(str, rolls))}){op}{target}")
+                output_lines.append(
+                    f"{base_expr}({','.join(map(str, rolls))}){op}{target}"
+                )
                 output_lines.append(f"Result：**{success}success**")
                 success_total += success
             else:
                 rolls, results = roll_b_dice(expression)
-                if results:
-                    output_lines.append(f"**{expression}(" + ",".join(map(str, results)) + ")**")
-                else:
-                    output_lines.append(f"**{expression}(" + ",".join(map(str, rolls)) + ")**")
+                values = results if results else rolls
+                output_lines.append(
+                    f"**{expression}(" + ",".join(map(str, values)) + ")**"
+                )
 
         else:
             if compare_match:
@@ -204,7 +195,9 @@ async def rr(ctx, times: int, *, arg):
 
                 output_lines.append(expanded_expr)
                 output_lines.append(f"Total：**{total}**")
-                output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
+                output_lines.append(
+                    f"**Result**：**{'Success' if success else 'Fail'}**"
+                )
                 if success:
                     success_total += 1
             else:
@@ -218,10 +211,9 @@ async def rr(ctx, times: int, *, arg):
     if compare_match:
         final_line = f"Success：**{success_total}**"
         output_lines.append(final_line)
-    else:
-        if "b" not in expression:
-            final_line = f"Grand Total：**{total_sum}**"
-            output_lines.append(final_line)
+    elif "b" not in expression:
+        final_line = f"Grand Total：**{total_sum}**"
+        output_lines.append(final_line)
 
     full_text = "\n".join(output_lines)
     full_text = apply_limit(full_text, final_line)
