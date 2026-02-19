@@ -12,6 +12,8 @@ intents.message_content = True
 bot = commands.Bot(command_prefix="!", intents=intents)
 
 MAX_RR = 100
+MAX_DICE = 1000
+MAX_SIDES = 1000
 
 DICE_PATTERN = re.compile(r"(\d+)d(\d+)")
 B_PATTERN = re.compile(r"(\d+)b(\d+)")
@@ -39,7 +41,6 @@ def safe_eval(expr):
 
     return _eval(ast.parse(expr, mode="eval").body)
 
-
 # =========================
 # roll_dice
 # =========================
@@ -56,10 +57,10 @@ def roll_dice(expression):
         count = int(match.group(1))
         sides = int(match.group(2))
 
-        # nを1000に変更
-        if count < 1 or count > 1000:
+        # 上限制御
+        if count < 1 or count > MAX_DICE:
             return expression, None
-        if sides < 1 or sides > 1000:
+        if sides < 1 or sides > MAX_SIDES:
             return expression, None
 
         rolls = [random.randint(1, sides) for _ in range(count)]
@@ -85,10 +86,10 @@ def roll_b_dice(expression, compare=None):
     count = int(match.group(1))
     sides = int(match.group(2))
 
-    # nを1000に変更
-    if count < 1 or count > 1000:
+    # 上限制御
+    if count < 1 or count > MAX_DICE:
         return None, None
-    if sides < 1 or sides > 1000:
+    if sides < 1 or sides > MAX_SIDES:
         return None, None
 
     rolls = [random.randint(1, sides) for _ in range(count)]
