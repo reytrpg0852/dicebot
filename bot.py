@@ -81,16 +81,43 @@ def roll_dice(expression):
         rolls = [random.randint(1, sides) for _ in range(count)]
         roll_sum = sum(rolls)
 
-        if count == 1:
-            detail = f"{count}d{sides}({rolls[0]})"
-        else:
-            detail = f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")"
+        detail = f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")"
 
         start, end = match.span()
         expanded_expr = expanded_expr[:start] + detail + expanded_expr[end:]
         total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
 
     return expanded_expr, safe_eval(total_expr)
+
+# =========================
+# bダイス（成功数型）
+# =========================
+def roll_b_dice(expression):
+
+    match = B_PATTERN.search(expression)
+    if not match:
+        return None, None, None
+
+    count = int(match.group(1))
+    sides = int(match.group(2))
+
+    if count < 1 or count > MAX_DICE:
+        return None, None, None
+    if sides < 1 or sides > MAX_SIDES:
+        return None, None, None
+
+    rolls = [random.randint(1, sides) for _ in range(count)]
+    detail = f"{count}b{sides}(" + "+".join(map(str, rolls)) + ")"
+
+    compare_match = COMPARE_PATTERN.search(expression)
+    success = None
+
+    if compare_match:
+        op, target = compare_match.groups()
+        target = int(target)
+        success = sum(1 for r in rolls if eval(f"{r}{op}{target}"))
+
+    return detail, rolls, success
 
 # =========================
 # !r
@@ -100,8 +127,27 @@ async def r(ctx, *, arg=None):
 
     mention = ctx.author.mention
     expression = (arg or "1d100").strip()
-    compare_match = COMPARE_PATTERN.search(expression)
 
+    # bダイス優先判定
+    if B_PATTERN.search(expression):
+
+        detail, rolls, success = roll_b_dice(expression)
+        if detail is None:
+            return
+
+        compare_match = COMPARE_PATTERN.search(expression)
+
+        if compare_match:
+            suffix = f"Success：**{success}**"
+        else:
+            suffix = ""
+
+        result = shorten_output(detail, suffix)
+        await ctx.send(f"{mention}\n{result}")
+        return
+
+    # dダイス処理
+    compare_match = COMPARE_PATTERN.search(expression)
     expanded_expr, total = roll_dice(expression)
     if total is None:
         return
@@ -117,7 +163,7 @@ async def r(ctx, *, arg=None):
     await ctx.send(f"{mention}\n{result}")
 
 # =========================
-# !rr（各回Totalを**で囲う）
+# !rr
 # =========================
 @bot.command()
 async def rr(ctx, times: int, *, arg):
@@ -128,8 +174,39 @@ async def rr(ctx, times: int, *, arg):
         return
 
     expression = arg.strip()
-    compare_match = COMPARE_PATTERN.search(expression)
 
+    # bダイス処理
+    if B_PATTERN.search(expression):
+
+        compare_match = COMPARE_PATTERN.search(expression)
+        lines = []
+        total_success = 0
+
+        for _ in range(times):
+
+            detail, rolls, success = roll_b_dice(expression)
+            if detail is None:
+                return
+
+            lines.append(detail)
+
+            if compare_match:
+                lines.append(f"Success : **{success}**")
+                total_success += success
+
+        body = "\n".join(lines)
+
+        if compare_match:
+            suffix = f"Total Success：**{total_success}**"
+        else:
+            suffix = ""
+
+        result = shorten_output(body, suffix)
+        await ctx.send(f"{mention}\n{result}")
+        return
+
+    # dダイス処理
+    compare_match = COMPARE_PATTERN.search(expression)
     lines = []
     total_sum = 0
     success_total = 0
