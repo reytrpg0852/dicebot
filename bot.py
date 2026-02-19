@@ -29,6 +29,9 @@ operators = {
     ast.USub: operator.neg
 }
 
+# =========================
+# 安全計算
+# =========================
 def safe_eval(expr):
     def _eval(node):
         if isinstance(node, ast.Constant):
@@ -42,7 +45,15 @@ def safe_eval(expr):
     return _eval(ast.parse(expr, mode="eval").body)
 
 # =========================
-# roll_dice
+# 500文字制限処理
+# =========================
+def shorten_output(text, suffix=""):
+    if len(text) <= 500:
+        return text
+    return text[:50] + "......\n" + suffix
+
+# =========================
+# dダイス
 # =========================
 def roll_dice(expression):
 
@@ -57,7 +68,6 @@ def roll_dice(expression):
         count = int(match.group(1))
         sides = int(match.group(2))
 
-        # 上限制御
         if count < 1 or count > MAX_DICE:
             return expression, None
         if sides < 1 or sides > MAX_SIDES:
@@ -77,8 +87,11 @@ def roll_dice(expression):
 
     return expanded_expr, safe_eval(total_expr)
 
-
+# =========================
+# bダイス
+# =========================
 def roll_b_dice(expression, compare=None):
+
     match = B_PATTERN.match(expression)
     if not match:
         return None, None
@@ -86,7 +99,6 @@ def roll_b_dice(expression, compare=None):
     count = int(match.group(1))
     sides = int(match.group(2))
 
-    # 上限制御
     if count < 1 or count > MAX_DICE:
         return None, None
     if sides < 1 or sides > MAX_SIDES:
@@ -100,7 +112,6 @@ def roll_b_dice(expression, compare=None):
 
     return rolls, None
 
-
 # =========================
 # !r
 # =========================
@@ -109,52 +120,48 @@ async def r(ctx, *, arg=None):
 
     mention = ctx.author.mention
     expression = (arg or "1d100").strip()
-
     compare_match = COMPARE_PATTERN.search(expression)
 
+    # ---- bダイス ----
     if "b" in expression:
         if compare_match:
             op, target = compare_match.groups()
             base_expr = expression.split(op)[0]
             rolls, success = roll_b_dice(base_expr, op + target)
-
             if rolls is None:
                 return
 
-            result = f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
-            result += f"Result：**{success}success**"
-            await ctx.send(f"{mention}\n{result}")
+            body = f"{base_expr}({','.join(map(str, rolls))}){op}{target}"
+            suffix = f"Result：**{success}success**"
+            body = shorten_output(body, suffix)
+
+            await ctx.send(f"{mention}\n{body}")
             return
 
         rolls, _ = roll_b_dice(expression)
         if rolls is None:
             return
 
-        output = f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
-        await ctx.send(f"{mention}\n{output}")
+        body = f"{expression}(" + ",".join(map(str, rolls)) + ")"
+        body = shorten_output(body)
+        await ctx.send(f"{mention}\n{body}")
         return
 
-    if compare_match:
-        op, target = compare_match.groups()
-        base_expr = expression.split(op)[0]
-        expanded_expr, total = roll_dice(base_expr)
-
-        if total is None:
-            return
-
-        success = eval(f"{total}{op}{target}")
-        text = f"{expanded_expr}\nTotal：**{total}**\n"
-        text += f"**Result**：**{'Success' if success else 'Fail'}**"
-        await ctx.send(f"{mention}\n{text}")
-        return
-
+    # ---- dダイス ----
     expanded_expr, total = roll_dice(expression)
     if total is None:
         return
 
-    text = f"{expanded_expr}\nTotal：**{total}**"
-    await ctx.send(f"{mention}\n{text}")
+    if compare_match:
+        op, target = compare_match.groups()
+        success = eval(f"{total}{op}{target}")
+        suffix = f"Total：**{total}**\nResult：**{'Success' if success else 'Fail'}**"
+        body = shorten_output(expanded_expr, suffix)
+    else:
+        suffix = f"Total：**{total}**"
+        body = shorten_output(expanded_expr, suffix)
 
+    await ctx.send(f"{mention}\n{body}")
 
 # =========================
 # !rr
@@ -170,43 +177,38 @@ async def rr(ctx, times: int, *, arg):
     expression = arg.strip()
     compare_match = COMPARE_PATTERN.search(expression)
 
-    output_lines = []
+    lines = []
     total_sum = 0
     success_total = 0
 
     for _ in range(times):
 
+        expanded_expr, total = roll_dice(expression)
+        if total is None:
+            return
+
+        lines.append(expanded_expr)
+
         if compare_match:
             op, target = compare_match.groups()
-            base_expr = expression.split(op)[0]
-            expanded_expr, total = roll_dice(base_expr)
-
-            if total is None:
-                return
-
             success = eval(f"{total}{op}{target}")
-            output_lines.append(expanded_expr)
-            output_lines.append(f"Total：**{total}**")
-            output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
             if success:
                 success_total += 1
         else:
-            expanded_expr, total = roll_dice(expression)
-            if total is None:
-                return
-
-            output_lines.append(expanded_expr)
-            output_lines.append(f"Total：**{total}**")
             total_sum += total
 
+    body = "\n".join(lines)
+
     if compare_match:
-        output_lines.append(f"Success：**{success_total}**")
+        suffix = f"Success：**{success_total}**"
     else:
-        output_lines.append(f"Grand Total：**{total_sum}**")
+        suffix = f"Grand Total：**{total_sum}**"
 
-    await ctx.send(f"{mention}\n" + "\n".join(output_lines))
+    body = shorten_output(body, suffix)
 
+    await ctx.send(f"{mention}\n{body}")
 
+# =========================
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
