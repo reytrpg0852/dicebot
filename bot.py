@@ -49,10 +49,22 @@ async def on_message(message):
     if message.author.bot:
         return
 
-    if not message.content.startswith("!r "):
+    if not message.content.startswith("!r"):
         return
 
-    expr = message.content[3:].strip()
+    raw = message.content[2:].strip()
+
+    # ----------------------------------
+    # ① 引数なし → 1d100
+    # ----------------------------------
+    if raw == "":
+        expr = "1d100"
+        comment = ""
+    else:
+        raw = raw.replace("　", " ")
+        parts = raw.split(" ", 1)
+        expr = parts[0]
+        comment = parts[1] if len(parts) > 1 else ""
 
     try:
         comparison_match = re.search(r"(>=|<=|==|=|>|<)", expr)
@@ -65,7 +77,7 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        display_parts = []
+        display_expr = expr  # ← 元の式保存
 
         dice_pattern = r"(\d+)([db])(\d+)"
 
@@ -83,7 +95,14 @@ async def on_message(message):
             if mode == "d":
                 total = sum(rolls)
                 roll_text = "+".join(str(r) for r in rolls)
-                display_parts.append(f"{n_expr}d{m_expr}({roll_text})")
+
+                # display側も置換
+                display_expr = display_expr.replace(
+                    f"{n_expr}d{m_expr}",
+                    f"{n_expr}d{m_expr}({roll_text})",
+                    1
+                )
+
                 expr = expr[:match.start()] + str(total) + expr[match.end():]
 
             else:
@@ -94,8 +113,10 @@ async def on_message(message):
                     val = safe_eval(temp_expr)
                     new_values.append(val)
 
-                display_parts.append(
-                    f"{n_expr}b{m_expr}({','.join(str(r) for r in new_values)})"
+                display_expr = display_expr.replace(
+                    f"{n_expr}b{m_expr}",
+                    f"{n_expr}b{m_expr}({','.join(str(r) for r in new_values)})",
+                    1
                 )
 
                 breakdown = new_values
@@ -104,7 +125,6 @@ async def on_message(message):
 
         if expr is not None:
             result = round(safe_eval(expr), 3)
-            display_formula = " + ".join(display_parts)
 
             if comparator:
                 if comparator in ["=", "=="]:
@@ -119,16 +139,15 @@ async def on_message(message):
                     success = result <= compare_value
 
                 msg = (
-                    f"{display_formula}\n"
+                    f"{display_expr}\n"
                     f"Total: {result}\n"
                     f"Result: {'Success' if success else 'Fail'}"
                 )
             else:
-                msg = f"{display_formula}\nTotal: {result}"
+                msg = f"{display_expr}\nTotal: {result}"
 
         else:
             breakdown = [round(x, 3) for x in breakdown]
-            display_formula = display_parts[0]
 
             if comparator:
                 success_count = 0
@@ -145,11 +164,14 @@ async def on_message(message):
                         success_count += 1
 
                 msg = (
-                    f"{display_formula}\n"
+                    f"{display_expr}\n"
                     f"Success Count: {success_count}"
                 )
             else:
-                msg = f"{display_formula}"
+                msg = f"{display_expr}"
+
+        if comment:
+            msg += f"\n💬 {comment}"
 
         await message.channel.send(f"{message.author.mention}\n{msg}")
 
