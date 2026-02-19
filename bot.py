@@ -17,7 +17,7 @@ operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
-    ast.Div: operator.truediv,   # ★ 小数対応
+    ast.Div: operator.truediv,
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
     ast.USub: operator.neg
@@ -39,7 +39,7 @@ def safe_eval(expr):
 
 
 # =========================
-# ★ 安定動作版ダイス処理
+# ★ 完全安定版 roll_dice
 # =========================
 def roll_dice(expression):
 
@@ -58,7 +58,7 @@ def roll_dice(expression):
         rolls = [random.randint(1, sides) for _ in range(count)]
         roll_sum = sum(rolls)
 
-        # 表示用テキスト
+        # 表示形式
         if count == 1:
             detail = f"{count}d{sides}({rolls[0]})"
         else:
@@ -66,11 +66,11 @@ def roll_dice(expression):
 
         start, end = match.span()
 
-        # 計算用式を安全に置換
+        # total_expr を置換
         total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
 
-        # 表示用は1回だけ安全置換
-        expanded_expr = re.sub(r"(\d+)d(\d+)", detail, expanded_expr, count=1)
+        # expanded_expr も同じ位置で置換
+        expanded_expr = expanded_expr[:start] + detail + expanded_expr[end:]
 
     total = safe_eval(total_expr)
     return expanded_expr, total
