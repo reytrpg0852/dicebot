@@ -29,9 +29,6 @@ operators = {
     ast.USub: operator.neg
 }
 
-# =========================
-# 安全計算
-# =========================
 def safe_eval(expr):
     def _eval(node):
         if isinstance(node, ast.Constant):
@@ -41,27 +38,17 @@ def safe_eval(expr):
         elif isinstance(node, ast.UnaryOp):
             return operators[type(node.op)](_eval(node.operand))
         raise TypeError(node)
-
     return _eval(ast.parse(expr, mode="eval").body)
 
-# =========================
-# 500文字制限処理
-# =========================
 def shorten_output(body, suffix=""):
     full_text = body
     if suffix:
         full_text += "\n" + suffix
-
     if len(full_text) <= 500:
         return full_text
-
     return body[:50] + "......\n" + suffix
 
-# =========================
-# dダイス（変更なし）
-# =========================
 def roll_dice(expression):
-
     matches = list(DICE_PATTERN.finditer(expression))
     if not matches:
         return expression, safe_eval(expression)
@@ -89,11 +76,7 @@ def roll_dice(expression):
 
     return expanded_expr, safe_eval(total_expr)
 
-# =========================
-# bダイス（＋ → , に修正）
-# =========================
 def roll_b_dice(expression):
-
     match = B_PATTERN.search(expression)
     if not match:
         return None, None, None
@@ -107,8 +90,6 @@ def roll_b_dice(expression):
         return None, None, None
 
     rolls = [random.randint(1, sides) for _ in range(count)]
-
-    # ★ ここだけ変更（+ → ,）
     detail = f"{count}b{sides}(" + ",".join(map(str, rolls)) + ")"
 
     compare_match = COMPARE_PATTERN.search(expression)
@@ -118,23 +99,16 @@ def roll_b_dice(expression):
         op, target = compare_match.groups()
         target = int(target)
         success = sum(1 for r in rolls if eval(f"{r}{op}{target}"))
-
-        # 比較式表示復元
         detail = detail + f"{op}{target}"
 
     return detail, rolls, success
 
-# =========================
-# !r（変更なし）
-# =========================
 @bot.command()
 async def r(ctx, *, arg=None):
-
     mention = ctx.author.mention
     expression = (arg or "1d100").strip()
 
     if B_PATTERN.search(expression):
-
         detail, rolls, success = roll_b_dice(expression)
         if detail is None:
             return
@@ -165,12 +139,8 @@ async def r(ctx, *, arg=None):
     result = shorten_output(expanded_expr, suffix)
     await ctx.send(f"{mention}\n{result}")
 
-# =========================
-# !rr（d変更なし、bのみ影響）
-# =========================
 @bot.command()
 async def rr(ctx, times: int, *, arg):
-
     mention = ctx.author.mention
 
     if times < 1 or times > MAX_RR:
@@ -179,13 +149,11 @@ async def rr(ctx, times: int, *, arg):
     expression = arg.strip()
 
     if B_PATTERN.search(expression):
-
         compare_match = COMPARE_PATTERN.search(expression)
         lines = []
         total_success = 0
 
         for _ in range(times):
-
             detail, rolls, success = roll_b_dice(expression)
             if detail is None:
                 return
@@ -207,23 +175,25 @@ async def rr(ctx, times: int, *, arg):
         await ctx.send(f"{mention}\n{result}")
         return
 
+    # ===== dダイス修正部分 =====
     compare_match = COMPARE_PATTERN.search(expression)
     lines = []
     total_sum = 0
     success_total = 0
 
     for _ in range(times):
-
         expanded_expr, total = roll_dice(expression)
         if total is None:
             return
 
         lines.append(expanded_expr)
-        lines.append(f"Total : **{total}**")
+        lines.append(f"Total : {total}")
 
         if compare_match:
             op, target = compare_match.groups()
-            if eval(f"{total}{op}{target}"):
+            result = eval(f"{total}{op}{target}")
+            lines.append(f"Result : {'Success' if result else 'Fail'}")
+            if result:
                 success_total += 1
         else:
             total_sum += total
@@ -231,7 +201,7 @@ async def rr(ctx, times: int, *, arg):
     body = "\n".join(lines)
 
     if compare_match:
-        suffix = f"Success：**{success_total}**"
+        suffix = f"Success : {success_total}"
     else:
         suffix = f"Grand Total：**{total_sum}**"
 
