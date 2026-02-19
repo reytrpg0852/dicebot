@@ -36,13 +36,7 @@ def safe_eval(expr):
     return eval_node(node)
 
 def roll_dice(n, m):
-    if n <= 0 or m <= 0:
-        raise ValueError("n and m must be positive")
-    if n > 100:
-        raise ValueError("n must be <= 100")
-    if m > 1000:
-        raise ValueError("m must be <= 1000")
-    return [random.randint(1, int(m)) for _ in range(int(n))]
+    return [random.randint(1, m) for _ in range(n)]
 
 @bot.event
 async def on_message(message):
@@ -64,9 +58,9 @@ async def on_message(message):
         comment = parts[1] if len(parts) > 1 else ""
 
     try:
-        # -----------------------------
+        # -------------------------
         # 比較処理（安全版）
-        # -----------------------------
+        # -------------------------
         comparison_match = re.search(r"(>=|<=|==|>|<|=)", expr)
         comparator = None
         compare_value = None
@@ -77,12 +71,13 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        display_expr = expr
+        # -------------------------
+        # ダイス展開（安定版）
+        # -------------------------
         dice_pattern = r"(\d+)d(\d+)"
 
-        # -----------------------------
-        # ダイス展開（位置同期修正版）
-        # -----------------------------
+        display_expr = expr
+
         while True:
             match = re.search(dice_pattern, expr)
             if not match:
@@ -91,29 +86,30 @@ async def on_message(message):
             n, m = map(int, match.groups())
             rolls = roll_dice(n, m)
             total = sum(rolls)
-            roll_text = "+".join(str(r) for r in rolls)
+            roll_text = "+".join(map(str, rolls))
 
-            # 計算式置換
-            expr = expr[:match.start()] + str(total) + expr[match.end():]
+            # 計算用式置換（1回だけ）
+            expr = re.sub(dice_pattern, str(total), expr, count=1)
 
-            # 表示式も同じ位置で置換
-            display_expr = (
-                display_expr[:match.start()] +
-                f"{n}d{m}({roll_text})" +
-                display_expr[match.end():]
+            # 表示用式置換（1回だけ）
+            display_expr = re.sub(
+                dice_pattern,
+                f"{n}d{m}({roll_text})",
+                display_expr,
+                count=1
             )
 
-        # -----------------------------
+        # -------------------------
         # 計算
-        # -----------------------------
+        # -------------------------
         result = round(safe_eval(expr), 3)
 
         if result == int(result):
             result = int(result)
 
-        # -----------------------------
+        # -------------------------
         # 比較判定
-        # -----------------------------
+        # -------------------------
         compare_text = ""
         if comparator:
             if comparator in ["=", "=="]:
@@ -129,13 +125,21 @@ async def on_message(message):
 
             compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
-        # -----------------------------
-        # 出力
-        # -----------------------------
+        # -------------------------
+        # 出力（メンション復活）
+        # -------------------------
         if comment:
-            output = f"{comment}：{display_expr}\nTotal：**{result}**{compare_text}"
+            output = (
+                f"{message.author.mention}\n"
+                f"{comment}：{display_expr}\n"
+                f"Total：**{result}**{compare_text}"
+            )
         else:
-            output = f"{display_expr}\nTotal：**{result}**{compare_text}"
+            output = (
+                f"{message.author.mention}\n"
+                f"{display_expr}\n"
+                f"Total：**{result}**{compare_text}"
+            )
 
         await message.channel.send(output)
 
