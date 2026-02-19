@@ -4,6 +4,8 @@ import random
 import re
 import ast
 import operator
+import os
+import sys
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -28,8 +30,8 @@ operators = {
 
 def safe_eval(expr):
     def _eval(node):
-        if isinstance(node, ast.Num):
-            return node.n
+        if isinstance(node, ast.Constant):  # Python3.10対応
+            return node.value
         elif isinstance(node, ast.BinOp):
             return operators[type(node.op)](_eval(node.left), _eval(node.right))
         elif isinstance(node, ast.UnaryOp):
@@ -66,7 +68,7 @@ def roll_dice(expression):
 def roll_b_dice(expression, compare=None):
     match = re.match(r"(\d+)b(\d+)(.*)", expression)
     if not match:
-        return None
+        return None, None
 
     count = int(match.group(1))
     sides = int(match.group(2))
@@ -74,21 +76,19 @@ def roll_b_dice(expression, compare=None):
 
     rolls = [random.randint(1, sides) for _ in range(count)]
 
-    # 数式付き
-    if tail and not compare:
-        results = []
-        for r in rolls:
-            value = safe_eval(str(r) + tail)
-            results.append(value)
-        return rolls, results
-
-    # 比較式
     if compare:
         success = 0
         for r in rolls:
             if eval(f"{r}{compare}"):
                 success += 1
         return rolls, success
+
+    if tail:
+        results = []
+        for r in rolls:
+            value = safe_eval(str(r) + tail)
+            results.append(value)
+        return rolls, results
 
     return rolls, None
 
@@ -110,29 +110,23 @@ async def r(ctx, *, arg):
 
     mention = ctx.author.mention
     expression = arg.strip()
-
     compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
 
-    # ---------------- bダイス ----------------
+    # bダイス
     if "b" in expression:
 
         if compare_match:
-            compare_op = compare_match.group(1)
-            target = compare_match.group(2)
-            compare = compare_op + target
-            base_expr = expression.split(compare_op)[0]
+            op, target = compare_match.groups()
+            base_expr = expression.split(op)[0]
+            rolls, success = roll_b_dice(base_expr, op + target)
 
-            rolls, success = roll_b_dice(base_expr, compare)
-
-            result_text = f"{base_expr}({','.join(map(str, rolls))}){compare_op}{target}\n"
-            result_text += f"**Result**：**{success}success**"
-
-            await ctx.send(f"{mention}\n{result_text}")
+            result = f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
+            result += f"**Result**：**{success}success**"
+            await ctx.send(f"{mention}\n{result}")
             return
 
         rolls, results = roll_b_dice(expression)
 
-        # 数式付き
         if results:
             output = f"**{expression}(" + ",".join(map(str, results)) + ")**"
         else:
@@ -141,27 +135,23 @@ async def r(ctx, *, arg):
         await ctx.send(f"{mention}\n{output}")
         return
 
-    # ---------------- dダイス ----------------
+    # dダイス
     if compare_match:
-        compare_op = compare_match.group(1)
-        target = compare_match.group(2)
-        base_expr = expression.split(compare_op)[0]
-
+        op, target = compare_match.groups()
+        base_expr = expression.split(op)[0]
         rolls_detail, total = roll_dice(base_expr)
-        success = eval(f"{total}{compare_op}{target}")
+        success = eval(f"{total}{op}{target}")
 
-        result_text = "\n".join(rolls_detail)
-        result_text += f"\nTotal：{total}\n"
-        result_text += f"**Result**：**{'Success' if success else 'Fail'}**"
-
-        await ctx.send(f"{mention}\n{result_text}")
+        text = "\n".join(rolls_detail)
+        text += f"\nTotal：{total}\n"
+        text += f"**Result**：**{'Success' if success else 'Fail'}**"
+        await ctx.send(f"{mention}\n{text}")
         return
 
     rolls_detail, total = roll_dice(expression)
-    result_text = "\n".join(rolls_detail)
-    result_text += f"\nTotal：{total}"
-
-    await ctx.send(f"{mention}\n{result_text}")
+    text = "\n".join(rolls_detail)
+    text += f"\nTotal：{total}"
+    await ctx.send(f"{mention}\n{text}")
 
 
 # ---------------------------
@@ -185,54 +175,35 @@ async def rr(ctx, times: int, *, arg):
 
     for _ in range(times):
 
-        # bダイス
         if "b" in expression:
 
             if compare_match:
-                compare_op = compare_match.group(1)
-                target = compare_match.group(2)
-                compare = compare_op + target
-                base_expr = expression.split(compare_op)[0]
+                op, target = compare_match.groups()
+                base_expr = expression.split(op)[0]
+                rolls, success = roll_b_dice(base_expr, op + target)
 
-                rolls, success = roll_b_dice(base_expr, compare)
-
-                output_lines.append(
-                    f"{base_expr}({','.join(map(str, rolls))}){compare_op}{target}"
-                )
+                output_lines.append(f"{base_expr}({','.join(map(str, rolls))}){op}{target}")
                 output_lines.append(f"**Result**：**{success}success**")
-
                 success_total += success
-
             else:
                 rolls, results = roll_b_dice(expression)
                 if results:
-                    output_lines.append(
-                        f"**{expression}(" + ",".join(map(str, results)) + ")**"
-                    )
+                    output_lines.append(f"**{expression}(" + ",".join(map(str, results)) + ")**")
                 else:
-                    output_lines.append(
-                        f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
-                    )
+                    output_lines.append(f"**{expression}(" + ",".join(map(str, rolls)) + ")**")
 
-        # dダイス
         else:
             if compare_match:
-                compare_op = compare_match.group(1)
-                target = compare_match.group(2)
-                base_expr = expression.split(compare_op)[0]
-
+                op, target = compare_match.groups()
+                base_expr = expression.split(op)[0]
                 rolls_detail, total = roll_dice(base_expr)
-                success = eval(f"{total}{compare_op}{target}")
+                success = eval(f"{total}{op}{target}")
 
                 output_lines.extend(rolls_detail)
                 output_lines.append(f"Total：{total}")
-                output_lines.append(
-                    f"**Result**：**{'Success' if success else 'Fail'}**"
-                )
-
+                output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
                 if success:
                     success_total += 1
-
             else:
                 rolls_detail, total = roll_dice(expression)
                 output_lines.extend(rolls_detail)
@@ -255,4 +226,13 @@ async def rr(ctx, times: int, *, arg):
     await ctx.send(f"{mention}\n{full_text}")
 
 
-bot.run("YOUR_BOT_TOKEN")
+# ---------------------------
+# Bot起動（環境変数）
+# ---------------------------
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    print("DISCORD_TOKEN が設定されていません。")
+    sys.exit(1)
+
+bot.run(TOKEN)
