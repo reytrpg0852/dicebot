@@ -1,157 +1,258 @@
 import discord
+from discord.ext import commands
 import random
 import re
 import ast
 import operator
-import os
-
-TOKEN = os.getenv("TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
-bot = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-allowed_operators = {
+MAX_RR = 100
+
+
+# ---------------------------
+# 安全な数式評価（dダイス用）
+# ---------------------------
+operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
+    ast.Div: operator.floordiv,
+    ast.Mod: operator.mod,
+    ast.Pow: operator.pow,
     ast.USub: operator.neg
 }
 
-# 正規表現事前コンパイル（効率化）
-dice_pattern = re.compile(r"\b(\d+)d(\d+)\b")
-comparison_pattern = re.compile(r"(>=|<=|==|>|<|=)")
 
 def safe_eval(expr):
-    def eval_node(node):
-        if isinstance(node, ast.Num):  # Python <3.8
+    def _eval(node):
+        if isinstance(node, ast.Num):
             return node.n
-        if isinstance(node, ast.Constant):  # Python 3.8+
-            return node.value
-        if isinstance(node, ast.UnaryOp):
-            return allowed_operators[type(node.op)](eval_node(node.operand))
-        if isinstance(node, ast.BinOp):
-            return allowed_operators[type(node.op)](
-                eval_node(node.left),
-                eval_node(node.right)
-            )
-        raise ValueError("Invalid expression")
-
-    node = ast.parse(expr, mode="eval").body
-    return eval_node(node)
-
-@bot.event
-async def on_message(message):
-    if message.author.bot:
-        return
-
-    if not message.content.startswith("!r"):
-        return
-
-    raw = message.content[2:].strip()
-
-    if raw == "":
-        expr = "1d100"
-        comment = ""
-    else:
-        raw = raw.replace("　", " ")
-        parts = raw.split(" ", 1)
-        expr = parts[0]
-        comment = parts[1] if len(parts) > 1 else ""
-
-    try:
-        # -------------------
-        # 比較処理
-        # -------------------
-        comparison_match = comparison_pattern.search(expr)
-        comparator = None
-        compare_value = None
-
-        if comparison_match:
-            comparator = comparison_match.group()
-            left, right = expr.split(comparator, 1)
-            compare_value = safe_eval(right)
-            expr = left.strip()
-
-        display_expr_parts = []
-        calc_expr_parts = []
-
-        last_index = 0
-
-        for match in dice_pattern.finditer(expr):
-            start, end = match.span()
-            n, m = map(int, match.groups())
-
-            # 通常文字列追加
-            calc_expr_parts.append(expr[last_index:start])
-            display_expr_parts.append(expr[last_index:start])
-
-            rolls = [random.randint(1, m) for _ in range(n)]
-            total = sum(rolls)
-            roll_text = "+".join(map(str, rolls))
-
-            # 計算式
-            calc_expr_parts.append(str(total))
-
-            # 表示式
-            display_expr_parts.append(f"{n}d{m}({roll_text})")
-
-            last_index = end
-
-        # 残り追加
-        calc_expr_parts.append(expr[last_index:])
-        display_expr_parts.append(expr[last_index:])
-
-        calc_expr = "".join(calc_expr_parts)
-        display_expr = "".join(display_expr_parts)
-
-        # -------------------
-        # 計算
-        # -------------------
-        result = round(safe_eval(calc_expr), 3)
-
-        if result == int(result):
-            result = int(result)
-
-        # -------------------
-        # 比較判定
-        # -------------------
-        compare_text = ""
-        if comparator:
-            if comparator in ["=", "=="]:
-                success = result == compare_value
-            elif comparator == ">":
-                success = result > compare_value
-            elif comparator == "<":
-                success = result < compare_value
-            elif comparator == ">=":
-                success = result >= compare_value
-            elif comparator == "<=":
-                success = result <= compare_value
-
-            # ★ 太字化変更部分
-            compare_text = f"\n**Result**：**{'Success' if success else 'Fail'}**"
-
-        # -------------------
-        # 出力
-        # -------------------
-        if comment:
-            output = (
-                f"{message.author.mention}\n"
-                f"{comment}：{display_expr}\n"
-                f"Total：**{result}**{compare_text}"
-            )
+        elif isinstance(node, ast.BinOp):
+            return operators[type(node.op)](_eval(node.left), _eval(node.right))
+        elif isinstance(node, ast.UnaryOp):
+            return operators[type(node.op)](_eval(node.operand))
         else:
-            output = (
-                f"{message.author.mention}\n"
-                f"{display_expr}\n"
-                f"Total：**{result}**{compare_text}"
-            )
+            raise TypeError(node)
 
-        await message.channel.send(output)
+    node = ast.parse(expr, mode="eval")
+    return _eval(node.body)
 
-    except Exception as e:
-        await message.channel.send(f"Error: {e}")
 
-bot.run(TOKEN)
+# ---------------------------
+# dダイス処理
+# ---------------------------
+def roll_dice(expression):
+    dice_pattern = r"(\d+)d(\d+)"
+    rolls_detail = []
+    total_expr = expression
+
+    for count, sides in re.findall(dice_pattern, expression):
+        count = int(count)
+        sides = int(sides)
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        rolls_detail.append(f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")")
+        total_expr = re.sub(rf"{count}d{sides}", str(sum(rolls)), total_expr, 1)
+
+    total = safe_eval(total_expr)
+    return rolls_detail, total
+
+
+# ---------------------------
+# bダイス処理
+# ---------------------------
+def roll_b_dice(expression, compare=None):
+    match = re.match(r"(\d+)b(\d+)(.*)", expression)
+    if not match:
+        return None
+
+    count = int(match.group(1))
+    sides = int(match.group(2))
+    tail = match.group(3)
+
+    rolls = [random.randint(1, sides) for _ in range(count)]
+
+    # 数式付き
+    if tail and not compare:
+        results = []
+        for r in rolls:
+            value = safe_eval(str(r) + tail)
+            results.append(value)
+        return rolls, results
+
+    # 比較式
+    if compare:
+        success = 0
+        for r in rolls:
+            if eval(f"{r}{compare}"):
+                success += 1
+        return rolls, success
+
+    return rolls, None
+
+
+# ---------------------------
+# 500文字制限処理
+# ---------------------------
+def apply_limit(text, final_line):
+    if len(text) <= 500:
+        return text
+    return text[:50] + "…………\n" + final_line
+
+
+# ---------------------------
+# !r コマンド
+# ---------------------------
+@bot.command()
+async def r(ctx, *, arg):
+
+    mention = ctx.author.mention
+    expression = arg.strip()
+
+    compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
+
+    # ---------------- bダイス ----------------
+    if "b" in expression:
+
+        if compare_match:
+            compare_op = compare_match.group(1)
+            target = compare_match.group(2)
+            compare = compare_op + target
+            base_expr = expression.split(compare_op)[0]
+
+            rolls, success = roll_b_dice(base_expr, compare)
+
+            result_text = f"{base_expr}({','.join(map(str, rolls))}){compare_op}{target}\n"
+            result_text += f"**Result**：**{success}success**"
+
+            await ctx.send(f"{mention}\n{result_text}")
+            return
+
+        rolls, results = roll_b_dice(expression)
+
+        # 数式付き
+        if results:
+            output = f"**{expression}(" + ",".join(map(str, results)) + ")**"
+        else:
+            output = f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
+
+        await ctx.send(f"{mention}\n{output}")
+        return
+
+    # ---------------- dダイス ----------------
+    if compare_match:
+        compare_op = compare_match.group(1)
+        target = compare_match.group(2)
+        base_expr = expression.split(compare_op)[0]
+
+        rolls_detail, total = roll_dice(base_expr)
+        success = eval(f"{total}{compare_op}{target}")
+
+        result_text = "\n".join(rolls_detail)
+        result_text += f"\nTotal：{total}\n"
+        result_text += f"**Result**：**{'Success' if success else 'Fail'}**"
+
+        await ctx.send(f"{mention}\n{result_text}")
+        return
+
+    rolls_detail, total = roll_dice(expression)
+    result_text = "\n".join(rolls_detail)
+    result_text += f"\nTotal：{total}"
+
+    await ctx.send(f"{mention}\n{result_text}")
+
+
+# ---------------------------
+# !rr コマンド
+# ---------------------------
+@bot.command()
+async def rr(ctx, times: int, *, arg):
+
+    mention = ctx.author.mention
+
+    if times > MAX_RR:
+        await ctx.send(f"{mention}\n回数は最大{MAX_RR}回までです。")
+        return
+
+    expression = arg.strip()
+    compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
+
+    output_lines = []
+    total_sum = 0
+    success_total = 0
+
+    for _ in range(times):
+
+        # bダイス
+        if "b" in expression:
+
+            if compare_match:
+                compare_op = compare_match.group(1)
+                target = compare_match.group(2)
+                compare = compare_op + target
+                base_expr = expression.split(compare_op)[0]
+
+                rolls, success = roll_b_dice(base_expr, compare)
+
+                output_lines.append(
+                    f"{base_expr}({','.join(map(str, rolls))}){compare_op}{target}"
+                )
+                output_lines.append(f"**Result**：**{success}success**")
+
+                success_total += success
+
+            else:
+                rolls, results = roll_b_dice(expression)
+                if results:
+                    output_lines.append(
+                        f"**{expression}(" + ",".join(map(str, results)) + ")**"
+                    )
+                else:
+                    output_lines.append(
+                        f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
+                    )
+
+        # dダイス
+        else:
+            if compare_match:
+                compare_op = compare_match.group(1)
+                target = compare_match.group(2)
+                base_expr = expression.split(compare_op)[0]
+
+                rolls_detail, total = roll_dice(base_expr)
+                success = eval(f"{total}{compare_op}{target}")
+
+                output_lines.extend(rolls_detail)
+                output_lines.append(f"Total：{total}")
+                output_lines.append(
+                    f"**Result**：**{'Success' if success else 'Fail'}**"
+                )
+
+                if success:
+                    success_total += 1
+
+            else:
+                rolls_detail, total = roll_dice(expression)
+                output_lines.extend(rolls_detail)
+                output_lines.append(f"Total：{total}")
+                total_sum += total
+
+    final_line = ""
+
+    if compare_match:
+        final_line = f"Success：**{success_total}**"
+        output_lines.append(final_line)
+    else:
+        if "b" not in expression:
+            final_line = f"Grand Total：**{total_sum}**"
+            output_lines.append(final_line)
+
+    full_text = "\n".join(output_lines)
+    full_text = apply_limit(full_text, final_line)
+
+    await ctx.send(f"{mention}\n{full_text}")
+
+
+bot.run("YOUR_BOT_TOKEN")
