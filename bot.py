@@ -1,19 +1,22 @@
 import discord
+from discord.ext import commands
 import random
 import re
 import ast
 import operator
 import os
-
-TOKEN = os.getenv("DISCORD_TOKEN")
+import sys
 
 intents = discord.Intents.default()
 intents.message_content = True
-client = discord.Client(intents=intents)
+bot = commands.Bot(command_prefix="!", intents=intents)
 
-# --------------------
-# 安全な演算処理
-# --------------------
+MAX_RR = 100
+
+DICE_PATTERN = re.compile(r"(\d+)d(\d+)")
+B_PATTERN = re.compile(r"(\d+)b(\d+)")
+COMPARE_PATTERN = re.compile(r"(>=|<=|==|>|<)(\d+)")
+
 operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -24,122 +27,188 @@ operators = {
     ast.USub: operator.neg
 }
 
-def safe_eval(node):
-    if isinstance(node, ast.Num):
-        return node.n
-    elif isinstance(node, ast.BinOp):
-        return operators[type(node.op)](
-            safe_eval(node.left),
-            safe_eval(node.right)
-        )
-    elif isinstance(node, ast.UnaryOp):
-        return operators[type(node.op)](
-            safe_eval(node.operand)
-        )
-    else:
+def safe_eval(expr):
+    def _eval(node):
+        if isinstance(node, ast.Constant):
+            return node.value
+        elif isinstance(node, ast.BinOp):
+            return operators[type(node.op)](_eval(node.left), _eval(node.right))
+        elif isinstance(node, ast.UnaryOp):
+            return operators[type(node.op)](_eval(node.operand))
         raise TypeError(node)
 
-# --------------------
-# dダイス処理
-# --------------------
-dice_pattern = re.compile(r'(\d+)d(\d+)')
+    return _eval(ast.parse(expr, mode="eval").body)
 
-def parse_dice(expression):
-    def roll(match):
-        dice_count = int(match.group(1))
-        dice_side = int(match.group(2))
+# =========================
+# roll_dice（後方置換・安定）
+# =========================
+def roll_dice(expression):
 
-        # 上限チェック（無反応）
-        if dice_count < 1 or dice_count > 100:
-            return match.group(0)
-        if dice_side < 1 or dice_side > 1000:
-            return match.group(0)
+    matches = list(DICE_PATTERN.finditer(expression))
+    if not matches:
+        return expression, safe_eval(expression)
 
-        rolls = [random.randint(1, dice_side) for _ in range(dice_count)]
-        return f"{dice_count}d{dice_side}(" + "+".join(map(str, rolls)) + ")"
+    expanded_expr = expression
+    total_expr = expression
 
-    return dice_pattern.sub(roll, expression)
+    for match in reversed(matches):
+        count = int(match.group(1))
+        sides = int(match.group(2))
 
-# --------------------
-# bダイス処理
-# --------------------
-b_pattern = re.compile(r'(\d+)b(\d+)')
+        # 上限制御（無反応）
+        if count < 1 or count > 100:
+            return expression, None
+        if sides < 1 or sides > 1000:
+            return expression, None
 
-def parse_b_dice(expression):
-    def roll(match):
-        dice_count = int(match.group(1))
-        dice_side = int(match.group(2))
+        rolls = [random.randint(1, sides) for _ in range(count)]
+        roll_sum = sum(rolls)
 
-        # 上限チェック（無反応）
-        if dice_count < 1 or dice_count > 100:
-            return match.group(0)
-        if dice_side < 1 or dice_side > 1000:
-            return match.group(0)
+        if count == 1:
+            detail = f"{count}d{sides}({rolls[0]})"
+        else:
+            detail = f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")"
 
-        rolls = [random.randint(1, dice_side) for _ in range(dice_count)]
-        return f"{dice_count}b{dice_side}(" + ",".join(map(str, rolls)) + ")"
+        start, end = match.span()
+        expanded_expr = expanded_expr[:start] + detail + expanded_expr[end:]
+        total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
 
-    return b_pattern.sub(roll, expression)
+    return expanded_expr, safe_eval(total_expr)
 
-# --------------------
-# メイン処理
-# --------------------
-@client.event
-async def on_message(message):
-    if message.author.bot:
-        return
 
-    # ---- !r ----
-    if message.content.startswith("!r"):
-        content = message.content[2:].strip()
-        if not content:
-            content = "1d100"
+def roll_b_dice(expression, compare=None):
+    match = B_PATTERN.match(expression)
+    if not match:
+        return None, None
 
-        content = parse_dice(content)
-        content = parse_b_dice(content)
+    count = int(match.group(1))
+    sides = int(match.group(2))
 
-        try:
-            tree = ast.parse(content, mode='eval')
-            result = safe_eval(tree.body)
-            await message.channel.send(f"{content}\nTotal: {result}")
-        except:
-            return
+    # 上限制御（無反応）
+    if count < 1 or count > 100:
+        return None, None
+    if sides < 1 or sides > 1000:
+        return None, None
 
-    # ---- !rr ----
-    if message.content.startswith("!rr"):
-        parts = message.content.split()
+    rolls = [random.randint(1, sides) for _ in range(count)]
 
-        if len(parts) < 3:
-            return
+    if compare:
+        success = sum(1 for r in rolls if eval(f"{r}{compare}"))
+        return rolls, success
 
-        try:
-            repeat = int(parts[1])
-        except:
-            return
+    return rolls, None
 
-        # rr回数制限（無反応）
-        if repeat < 1 or repeat > 100:
-            return
 
-        expression = " ".join(parts[2:])
+# =========================
+# !r
+# =========================
+@bot.command()
+async def r(ctx, *, arg=None):
 
-        grand_total = 0
-        outputs = []
+    mention = ctx.author.mention
+    expression = (arg or "1d100").strip()
 
-        for _ in range(repeat):
-            content = parse_dice(expression)
-            content = parse_b_dice(content)
+    compare_match = COMPARE_PATTERN.search(expression)
 
-            try:
-                tree = ast.parse(content, mode='eval')
-                result = safe_eval(tree.body)
-            except:
+    if "b" in expression:
+        if compare_match:
+            op, target = compare_match.groups()
+            base_expr = expression.split(op)[0]
+            rolls, success = roll_b_dice(base_expr, op + target)
+
+            if rolls is None:
                 return
 
-            grand_total += result
-            outputs.append(f"{content} = {result}")
+            result = f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
+            result += f"Result：**{success}success**"
+            await ctx.send(f"{mention}\n{result}")
+            return
 
-        outputs.append(f"\nGrand Total: {grand_total}")
-        await message.channel.send("\n".join(outputs))
+        rolls, _ = roll_b_dice(expression)
+        if rolls is None:
+            return
 
-client.run(TOKEN)
+        output = f"**{expression}(" + ",".join(map(str, rolls)) + ")**"
+        await ctx.send(f"{mention}\n{output}")
+        return
+
+    if compare_match:
+        op, target = compare_match.groups()
+        base_expr = expression.split(op)[0]
+        expanded_expr, total = roll_dice(base_expr)
+
+        if total is None:
+            return
+
+        success = eval(f"{total}{op}{target}")
+        text = f"{expanded_expr}\nTotal：**{total}**\n"
+        text += f"**Result**：**{'Success' if success else 'Fail'}**"
+        await ctx.send(f"{mention}\n{text}")
+        return
+
+    expanded_expr, total = roll_dice(expression)
+    if total is None:
+        return
+
+    text = f"{expanded_expr}\nTotal：**{total}**"
+    await ctx.send(f"{mention}\n{text}")
+
+
+# =========================
+# !rr
+# =========================
+@bot.command()
+async def rr(ctx, times: int, *, arg):
+
+    mention = ctx.author.mention
+
+    if times < 1 or times > 100:
+        return
+
+    expression = arg.strip()
+    compare_match = COMPARE_PATTERN.search(expression)
+
+    output_lines = []
+    total_sum = 0
+    success_total = 0
+
+    for _ in range(times):
+
+        if compare_match:
+            op, target = compare_match.groups()
+            base_expr = expression.split(op)[0]
+            expanded_expr, total = roll_dice(base_expr)
+
+            if total is None:
+                return
+
+            success = eval(f"{total}{op}{target}")
+            output_lines.append(expanded_expr)
+            output_lines.append(f"Total：**{total}**")
+            output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
+            if success:
+                success_total += 1
+        else:
+            expanded_expr, total = roll_dice(expression)
+            if total is None:
+                return
+
+            output_lines.append(expanded_expr)
+            output_lines.append(f"Total：**{total}**")
+            total_sum += total
+
+    if compare_match:
+        output_lines.append(f"Success：**{success_total}**")
+    else:
+        output_lines.append(f"Grand Total：**{total_sum}**")
+
+    await ctx.send(f"{mention}\n" + "\n".join(output_lines))
+
+
+TOKEN = os.getenv("DISCORD_TOKEN")
+
+if not TOKEN:
+    print("DISCORD_TOKEN が設定されていません。")
+    sys.exit(1)
+
+bot.run(TOKEN)
