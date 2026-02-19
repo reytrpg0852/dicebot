@@ -13,10 +13,6 @@ bot = commands.Bot(command_prefix="!", intents=intents)
 
 MAX_RR = 100
 
-
-# ---------------------------
-# 安全な数式評価（dダイス用）
-# ---------------------------
 operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -27,10 +23,9 @@ operators = {
     ast.USub: operator.neg
 }
 
-
 def safe_eval(expr):
     def _eval(node):
-        if isinstance(node, ast.Constant):  # Python3.10対応
+        if isinstance(node, ast.Constant):
             return node.value
         elif isinstance(node, ast.BinOp):
             return operators[type(node.op)](_eval(node.left), _eval(node.right))
@@ -42,10 +37,6 @@ def safe_eval(expr):
     node = ast.parse(expr, mode="eval")
     return _eval(node.body)
 
-
-# ---------------------------
-# dダイス処理
-# ---------------------------
 def roll_dice(expression):
     dice_pattern = r"(\d+)d(\d+)"
     rolls_detail = []
@@ -61,10 +52,6 @@ def roll_dice(expression):
     total = safe_eval(total_expr)
     return rolls_detail, total
 
-
-# ---------------------------
-# bダイス処理
-# ---------------------------
 def roll_b_dice(expression, compare=None):
     match = re.match(r"(\d+)b(\d+)(.*)", expression)
     if not match:
@@ -92,19 +79,11 @@ def roll_b_dice(expression, compare=None):
 
     return rolls, None
 
-
-# ---------------------------
-# 500文字制限処理
-# ---------------------------
 def apply_limit(text, final_line):
     if len(text) <= 500:
         return text
     return text[:50] + "…………\n" + final_line
 
-
-# ---------------------------
-# !r コマンド
-# ---------------------------
 @bot.command()
 async def r(ctx, *, arg):
 
@@ -112,7 +91,6 @@ async def r(ctx, *, arg):
     expression = arg.strip()
     compare_match = re.search(r"(>=|<=|==|>|<)(\d+)", expression)
 
-    # bダイス
     if "b" in expression:
 
         if compare_match:
@@ -121,7 +99,7 @@ async def r(ctx, *, arg):
             rolls, success = roll_b_dice(base_expr, op + target)
 
             result = f"{base_expr}({','.join(map(str, rolls))}){op}{target}\n"
-            result += f"**Result**：**{success}success**"
+            result += f"Result：**{success}success**"
             await ctx.send(f"{mention}\n{result}")
             return
 
@@ -135,7 +113,6 @@ async def r(ctx, *, arg):
         await ctx.send(f"{mention}\n{output}")
         return
 
-    # dダイス
     if compare_match:
         op, target = compare_match.groups()
         base_expr = expression.split(op)[0]
@@ -143,20 +120,16 @@ async def r(ctx, *, arg):
         success = eval(f"{total}{op}{target}")
 
         text = "\n".join(rolls_detail)
-        text += f"\nTotal：{total}\n"
+        text += f"\nTotal：**{total}**\n"
         text += f"**Result**：**{'Success' if success else 'Fail'}**"
         await ctx.send(f"{mention}\n{text}")
         return
 
     rolls_detail, total = roll_dice(expression)
     text = "\n".join(rolls_detail)
-    text += f"\nTotal：{total}"
+    text += f"\nTotal：**{total}**"
     await ctx.send(f"{mention}\n{text}")
 
-
-# ---------------------------
-# !rr コマンド
-# ---------------------------
 @bot.command()
 async def rr(ctx, times: int, *, arg):
 
@@ -183,7 +156,7 @@ async def rr(ctx, times: int, *, arg):
                 rolls, success = roll_b_dice(base_expr, op + target)
 
                 output_lines.append(f"{base_expr}({','.join(map(str, rolls))}){op}{target}")
-                output_lines.append(f"**Result**：**{success}success**")
+                output_lines.append(f"Result：**{success}success**")
                 success_total += success
             else:
                 rolls, results = roll_b_dice(expression)
@@ -200,14 +173,14 @@ async def rr(ctx, times: int, *, arg):
                 success = eval(f"{total}{op}{target}")
 
                 output_lines.extend(rolls_detail)
-                output_lines.append(f"Total：{total}")
+                output_lines.append(f"Total：**{total}**")
                 output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
                 if success:
                     success_total += 1
             else:
                 rolls_detail, total = roll_dice(expression)
                 output_lines.extend(rolls_detail)
-                output_lines.append(f"Total：{total}")
+                output_lines.append(f"Total：**{total}**")
                 total_sum += total
 
     final_line = ""
@@ -225,10 +198,6 @@ async def rr(ctx, times: int, *, arg):
 
     await ctx.send(f"{mention}\n{full_text}")
 
-
-# ---------------------------
-# Bot起動（環境変数）
-# ---------------------------
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
