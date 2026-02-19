@@ -58,7 +58,7 @@ def shorten_output(body, suffix=""):
     return body[:50] + "......\n" + suffix
 
 # =========================
-# dダイス
+# dダイス（変更なし）
 # =========================
 def roll_dice(expression):
 
@@ -90,7 +90,7 @@ def roll_dice(expression):
     return expanded_expr, safe_eval(total_expr)
 
 # =========================
-# bダイス（成功数型）
+# bダイス（＋ → , に修正）
 # =========================
 def roll_b_dice(expression):
 
@@ -107,7 +107,9 @@ def roll_b_dice(expression):
         return None, None, None
 
     rolls = [random.randint(1, sides) for _ in range(count)]
-    detail = f"{count}b{sides}(" + "+".join(map(str, rolls)) + ")"
+
+    # ★ ここだけ変更（+ → ,）
+    detail = f"{count}b{sides}(" + ",".join(map(str, rolls)) + ")"
 
     compare_match = COMPARE_PATTERN.search(expression)
     success = None
@@ -117,10 +119,13 @@ def roll_b_dice(expression):
         target = int(target)
         success = sum(1 for r in rolls if eval(f"{r}{op}{target}"))
 
+        # 比較式表示復元
+        detail = detail + f"{op}{target}"
+
     return detail, rolls, success
 
 # =========================
-# !r
+# !r（変更なし）
 # =========================
 @bot.command()
 async def r(ctx, *, arg=None):
@@ -128,7 +133,6 @@ async def r(ctx, *, arg=None):
     mention = ctx.author.mention
     expression = (arg or "1d100").strip()
 
-    # bダイス優先判定
     if B_PATTERN.search(expression):
 
         detail, rolls, success = roll_b_dice(expression)
@@ -146,7 +150,6 @@ async def r(ctx, *, arg=None):
         await ctx.send(f"{mention}\n{result}")
         return
 
-    # dダイス処理
     compare_match = COMPARE_PATTERN.search(expression)
     expanded_expr, total = roll_dice(expression)
     if total is None:
@@ -163,7 +166,7 @@ async def r(ctx, *, arg=None):
     await ctx.send(f"{mention}\n{result}")
 
 # =========================
-# !rr
+# !rr（d変更なし、bのみ影響）
 # =========================
 @bot.command()
 async def rr(ctx, times: int, *, arg):
@@ -175,7 +178,6 @@ async def rr(ctx, times: int, *, arg):
 
     expression = arg.strip()
 
-    # bダイス処理
     if B_PATTERN.search(expression):
 
         compare_match = COMPARE_PATTERN.search(expression)
@@ -205,7 +207,6 @@ async def rr(ctx, times: int, *, arg):
         await ctx.send(f"{mention}\n{result}")
         return
 
-    # dダイス処理
     compare_match = COMPARE_PATTERN.search(expression)
     lines = []
     total_sum = 0
@@ -237,7 +238,6 @@ async def rr(ctx, times: int, *, arg):
     result = shorten_output(body, suffix)
     await ctx.send(f"{mention}\n{result}")
 
-# =========================
 TOKEN = os.getenv("DISCORD_TOKEN")
 
 if not TOKEN:
