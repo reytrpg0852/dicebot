@@ -11,6 +11,12 @@ intents = discord.Intents.default()
 intents.message_content = True
 bot = discord.Client(intents=intents)
 
+# -------------------------
+# 事前定義（効率化）
+# -------------------------
+DICE_PATTERN = re.compile(r"\b(\d+)d(\d+)\b")
+COMPARE_PATTERN = re.compile(r"(>=|<=|==|>|<|=)")
+
 allowed_operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
@@ -19,9 +25,23 @@ allowed_operators = {
     ast.USub: operator.neg
 }
 
+compare_ops = {
+    "=": operator.eq,
+    "==": operator.eq,
+    ">": operator.gt,
+    "<": operator.lt,
+    ">=": operator.ge,
+    "<=": operator.le
+}
+
+# -------------------------
+# 安全計算
+# -------------------------
 def safe_eval(expr):
     def eval_node(node):
-        if isinstance(node, ast.Num):
+        if isinstance(node, ast.Constant):  # Python3.8+
+            return node.value
+        if isinstance(node, ast.Num):  # 旧互換
             return node.n
         if isinstance(node, ast.UnaryOp):
             return allowed_operators[type(node.op)](eval_node(node.operand))
@@ -35,17 +55,17 @@ def safe_eval(expr):
     node = ast.parse(expr, mode="eval").body
     return eval_node(node)
 
+# -------------------------
+# メイン処理
+# -------------------------
 @bot.event
 async def on_message(message):
-    if message.author.bot:
-        return
-
-    if not message.content.startswith("!r"):
+    if message.author.bot or not message.content.startswith("!r"):
         return
 
     raw = message.content[2:].strip()
 
-    if raw == "":
+    if not raw:
         expr = "1d100"
         comment = ""
     else:
@@ -55,10 +75,10 @@ async def on_message(message):
         comment = parts[1] if len(parts) > 1 else ""
 
     try:
-        # -------------------
+        # -------------------------
         # 比較処理
-        # -------------------
-        comparison_match = re.search(r"(>=|<=|==|>|<|=)", expr)
+        # -------------------------
+        comparison_match = COMPARE_PATTERN.search(expr)
         comparator = None
         compare_value = None
 
@@ -68,69 +88,53 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        dice_pattern = r"\b(\d+)d(\d+)\b"
-
-        display_expr_parts = []
-        calc_expr_parts = []
-
+        # -------------------------
+        # ダイス展開
+        # -------------------------
+        display_parts = []
+        calc_parts = []
         last_index = 0
 
-        for match in re.finditer(dice_pattern, expr):
+        for match in DICE_PATTERN.finditer(expr):
             start, end = match.span()
             n, m = map(int, match.groups())
 
-            # 直前の通常文字列を保存
-            calc_expr_parts.append(expr[last_index:start])
-            display_expr_parts.append(expr[last_index:start])
+            calc_parts.append(expr[last_index:start])
+            display_parts.append(expr[last_index:start])
 
             rolls = [random.randint(1, m) for _ in range(n)]
             total = sum(rolls)
             roll_text = "+".join(map(str, rolls))
 
-            # 計算式用
-            calc_expr_parts.append(str(total))
-
-            # 表示式用
-            display_expr_parts.append(f"{n}d{m}({roll_text})")
+            calc_parts.append(str(total))
+            display_parts.append(f"{n}d{m}({roll_text})")
 
             last_index = end
 
-        # 残りの文字列追加
-        calc_expr_parts.append(expr[last_index:])
-        display_expr_parts.append(expr[last_index:])
+        calc_parts.append(expr[last_index:])
+        display_parts.append(expr[last_index:])
 
-        calc_expr = "".join(calc_expr_parts)
-        display_expr = "".join(display_expr_parts)
+        calc_expr = "".join(calc_parts)
+        display_expr = "".join(display_parts)
 
-        # -------------------
+        # -------------------------
         # 計算
-        # -------------------
+        # -------------------------
         result = round(safe_eval(calc_expr), 3)
-
         if result == int(result):
             result = int(result)
 
-        # -------------------
-        # 比較
-        # -------------------
+        # -------------------------
+        # 比較判定
+        # -------------------------
         compare_text = ""
         if comparator:
-            if comparator in ["=", "=="]:
-                success = result == compare_value
-            elif comparator == ">":
-                success = result > compare_value
-            elif comparator == "<":
-                success = result < compare_value
-            elif comparator == ">=":
-                success = result >= compare_value
-            elif comparator == "<=":
-                success = result <= compare_value
-
+            success = compare_ops[comparator](result, compare_value)
             compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
-        # -------------------
+        # -------------------------
         # 出力
-        # -------------------
+        # -------------------------
         if comment:
             output = (
                 f"{message.author.mention}\n"
