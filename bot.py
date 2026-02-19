@@ -58,9 +58,9 @@ async def on_message(message):
         comment = parts[1] if len(parts) > 1 else ""
 
     try:
-        # ---------------------
+        # -------------------------
         # 比較処理
-        # ---------------------
+        # -------------------------
         comparison_match = re.search(r"(>=|<=|==|>|<|=)", expr)
         comparator = None
         compare_value = None
@@ -71,14 +71,14 @@ async def on_message(message):
             compare_value = safe_eval(right)
             expr = left.strip()
 
-        # ---------------------
-        # ダイス展開（完全安定版）
-        # ---------------------
         dice_pattern = r"(\d+)d(\d+)"
 
-        display_expr = expr
         calc_expr = expr
+        display_expr = expr
 
+        # -------------------------
+        # ダイス展開（完全同期版）
+        # -------------------------
         while True:
             match = re.search(dice_pattern, calc_expr)
             if not match:
@@ -89,32 +89,29 @@ async def on_message(message):
             total = sum(rolls)
             roll_text = "+".join(map(str, rolls))
 
+            start, end = match.start(), match.end()
+
             # 計算式更新
-            calc_expr = (
-                calc_expr[:match.start()] +
-                str(total) +
-                calc_expr[match.end():]
-            )
+            calc_expr = calc_expr[:start] + str(total) + calc_expr[end:]
 
-            # 表示式更新（matchはcalc_expr基準なので再検索する）
-            d_match = re.search(dice_pattern, display_expr)
+            # 表示式も同じ位置で更新（再検索しない）
             display_expr = (
-                display_expr[:d_match.start()] +
+                display_expr[:start] +
                 f"{n}d{m}({roll_text})" +
-                display_expr[d_match.end():]
+                display_expr[end:]
             )
 
-        # ---------------------
+        # -------------------------
         # 計算
-        # ---------------------
+        # -------------------------
         result = round(safe_eval(calc_expr), 3)
 
         if result == int(result):
             result = int(result)
 
-        # ---------------------
-        # 比較判定
-        # ---------------------
+        # -------------------------
+        # 比較
+        # -------------------------
         compare_text = ""
         if comparator:
             if comparator in ["=", "=="]:
@@ -130,9 +127,9 @@ async def on_message(message):
 
             compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
-        # ---------------------
+        # -------------------------
         # 出力（メンションあり）
-        # ---------------------
+        # -------------------------
         if comment:
             output = (
                 f"{message.author.mention}\n"
