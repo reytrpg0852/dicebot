@@ -3,8 +3,9 @@ import random
 import re
 import ast
 import operator
+import os
 
-TOKEN = "YOUR_BOT_TOKEN"
+TOKEN = os.getenv("DISCORD_TOKEN")
 
 intents = discord.Intents.default()
 intents.message_content = True
@@ -48,12 +49,11 @@ def parse_dice(expression):
         dice_count = int(match.group(1))
         dice_side = int(match.group(2))
 
-        # ===== 上限追加（無反応）=====
+        # 上限チェック（無反応）
         if dice_count < 1 or dice_count > 100:
             return match.group(0)
         if dice_side < 1 or dice_side > 1000:
             return match.group(0)
-        # ===========================
 
         rolls = [random.randint(1, dice_side) for _ in range(dice_count)]
         return f"{dice_count}d{dice_side}(" + "+".join(map(str, rolls)) + ")"
@@ -70,12 +70,11 @@ def parse_b_dice(expression):
         dice_count = int(match.group(1))
         dice_side = int(match.group(2))
 
-        # ===== 上限追加（無反応）=====
+        # 上限チェック（無反応）
         if dice_count < 1 or dice_count > 100:
             return match.group(0)
         if dice_side < 1 or dice_side > 1000:
             return match.group(0)
-        # ===========================
 
         rolls = [random.randint(1, dice_side) for _ in range(dice_count)]
         return f"{dice_count}b{dice_side}(" + ",".join(map(str, rolls)) + ")"
@@ -90,6 +89,7 @@ async def on_message(message):
     if message.author.bot:
         return
 
+    # ---- !r ----
     if message.content.startswith("!r"):
         content = message.content[2:].strip()
         if not content:
@@ -105,6 +105,7 @@ async def on_message(message):
         except:
             return
 
+    # ---- !rr ----
     if message.content.startswith("!rr"):
         parts = message.content.split()
 
@@ -116,10 +117,9 @@ async def on_message(message):
         except:
             return
 
-        # ===== rr上限追加（無反応）=====
+        # rr回数制限（無反応）
         if repeat < 1 or repeat > 100:
             return
-        # ===============================
 
         expression = " ".join(parts[2:])
 
