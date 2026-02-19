@@ -81,7 +81,7 @@ async def on_message(message):
         dice_pattern = r"(\d+)d(\d+)"
 
         # -----------------------------
-        # ダイス展開
+        # ダイス展開（位置同期修正版）
         # -----------------------------
         while True:
             match = re.search(dice_pattern, expr)
@@ -91,18 +91,16 @@ async def on_message(message):
             n, m = map(int, match.groups())
             rolls = roll_dice(n, m)
             total = sum(rolls)
-
             roll_text = "+".join(str(r) for r in rolls)
 
-            # 計算用置換
+            # 計算式置換
             expr = expr[:match.start()] + str(total) + expr[match.end():]
 
-            # 表示用置換（位置指定）
-            d_match = re.search(dice_pattern, display_expr)
+            # 表示式も同じ位置で置換
             display_expr = (
-                display_expr[:d_match.start()] +
+                display_expr[:match.start()] +
                 f"{n}d{m}({roll_text})" +
-                display_expr[d_match.end():]
+                display_expr[match.end():]
             )
 
         # -----------------------------
@@ -110,7 +108,6 @@ async def on_message(message):
         # -----------------------------
         result = round(safe_eval(expr), 3)
 
-        # ✅ 整数なら .0 を消す
         if result == int(result):
             result = int(result)
 
@@ -133,7 +130,7 @@ async def on_message(message):
             compare_text = f"\nResult：{'Success' if success else 'Fail'}"
 
         # -----------------------------
-        # 出力フォーマット
+        # 出力
         # -----------------------------
         if comment:
             output = f"{comment}：{display_expr}\nTotal：**{result}**{compare_text}"
