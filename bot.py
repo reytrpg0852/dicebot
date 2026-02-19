@@ -17,7 +17,7 @@ operators = {
     ast.Add: operator.add,
     ast.Sub: operator.sub,
     ast.Mult: operator.mul,
-    ast.Div: operator.truediv,
+    ast.Div: operator.truediv,  # 小数対応
     ast.Mod: operator.mod,
     ast.Pow: operator.pow,
     ast.USub: operator.neg
@@ -39,18 +39,21 @@ def safe_eval(expr):
 
 
 # =========================
-# ★ 完全安定版 roll_dice
+# 完全安定版 roll_dice
 # =========================
 def roll_dice(expression):
 
     dice_pattern = re.compile(r"(\d+)d(\d+)")
+    matches = list(dice_pattern.finditer(expression))
+
+    if not matches:
+        return expression, safe_eval(expression)
+
     expanded_expr = expression
     total_expr = expression
 
-    while True:
-        match = dice_pattern.search(total_expr)
-        if not match:
-            break
+    # 後ろから置換（インデックスズレ防止）
+    for match in reversed(matches):
 
         count = int(match.group(1))
         sides = int(match.group(2))
@@ -58,7 +61,6 @@ def roll_dice(expression):
         rolls = [random.randint(1, sides) for _ in range(count)]
         roll_sum = sum(rolls)
 
-        # 表示形式
         if count == 1:
             detail = f"{count}d{sides}({rolls[0]})"
         else:
@@ -66,11 +68,8 @@ def roll_dice(expression):
 
         start, end = match.span()
 
-        # total_expr を置換
-        total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
-
-        # expanded_expr も同じ位置で置換
         expanded_expr = expanded_expr[:start] + detail + expanded_expr[end:]
+        total_expr = total_expr[:start] + str(roll_sum) + total_expr[end:]
 
     total = safe_eval(total_expr)
     return expanded_expr, total
