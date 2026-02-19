@@ -15,8 +15,9 @@ MAX_RR = 100
 MAX_DICE = 1000
 MAX_SIDES = 1000
 
-DICE_PATTERN = re.compile(r"(\d+)d(\d+)")
-B_PATTERN = re.compile(r"(\d+)b(\d+)")
+DICE_PATTERN = re.compile(r"^(.+?)(?:[ 　]+(.+))?$")
+D_PATTERN = re.compile(r"(\d+d\d+(?:[+\-*/]\d+d\d+|[+\-*/]\d+)*)")
+B_PATTERN = re.compile(r"(\d+b\d+)")
 COMPARE_PATTERN = re.compile(r"(>=|<=|==|>|<)(\d+)")
 
 operators = {
@@ -49,14 +50,11 @@ def shorten_output(body, suffix=""):
     return body[:50] + "......\n" + suffix
 
 def roll_dice(expression):
-    matches = list(DICE_PATTERN.finditer(expression))
-    if not matches:
-        return expression, safe_eval(expression)
-
+    matches = re.finditer(r"(\d+)d(\d+)", expression)
     expanded_expr = expression
     total_expr = expression
 
-    for match in reversed(matches):
+    for match in reversed(list(matches)):
         count = int(match.group(1))
         sides = int(match.group(2))
 
@@ -77,7 +75,7 @@ def roll_dice(expression):
     return expanded_expr, safe_eval(total_expr)
 
 def roll_b_dice(expression):
-    match = B_PATTERN.search(expression)
+    match = re.search(r"(\d+)b(\d+)", expression)
     if not match:
         return None, None, None
 
@@ -99,32 +97,44 @@ def roll_b_dice(expression):
         op, target = compare_match.groups()
         target = int(target)
         success = sum(1 for r in rolls if eval(f"{r}{op}{target}"))
-        detail = detail + f"{op}{target}"
+        detail += f"{op}{target}"
 
     return detail, rolls, success
+
+def parse_input(arg):
+    match = DICE_PATTERN.match(arg)
+    if not match:
+        return None, None
+    return match.group(1), match.group(2)
 
 @bot.command()
 async def r(ctx, *, arg=None):
     mention = ctx.author.mention
-    expression = (arg or "1d100").strip()
 
-    if B_PATTERN.search(expression):
+    if arg is None:
+        expression = "1d100"
+        text = None
+    else:
+        expression, text = parse_input(arg.strip())
+
+        if not re.search(r"\d+[db]\d+", expression):
+            return  # 無反応
+
+    if re.search(r"\d+b\d+", expression):
         detail, rolls, success = roll_b_dice(expression)
         if detail is None:
             return
 
-        compare_match = COMPARE_PATTERN.search(expression)
+        if text:
+            detail = f"{text}：{detail}"
 
-        if compare_match:
-            suffix = f"Success：**{success}**"
-        else:
-            suffix = ""
+        compare_match = COMPARE_PATTERN.search(expression)
+        suffix = f"Success：**{success}**" if compare_match else ""
 
         result = shorten_output(detail, suffix)
         await ctx.send(f"{mention}\n{result}")
         return
 
-    # ===== dダイス比較式修正 =====
     compare_match = COMPARE_PATTERN.search(expression)
     if compare_match:
         op, target = compare_match.groups()
@@ -135,6 +145,9 @@ async def r(ctx, *, arg=None):
     expanded_expr, total = roll_dice(dice_expr)
     if total is None:
         return
+
+    if text:
+        expanded_expr = f"{text}：{expanded_expr}"
 
     if compare_match:
         success = eval(f"{total}{op}{target}")
@@ -152,9 +165,12 @@ async def rr(ctx, times: int, *, arg):
     if times < 1 or times > MAX_RR:
         return
 
-    expression = arg.strip()
+    expression, text = parse_input(arg.strip())
 
-    if B_PATTERN.search(expression):
+    if not re.search(r"\d+[db]\d+", expression):
+        return
+
+    if re.search(r"\d+b\d+", expression):
         compare_match = COMPARE_PATTERN.search(expression)
         lines = []
         total_success = 0
@@ -164,6 +180,9 @@ async def rr(ctx, times: int, *, arg):
             if detail is None:
                 return
 
+            if text:
+                detail = f"{text}：{detail}"
+
             lines.append(detail)
 
             if compare_match:
@@ -171,17 +190,12 @@ async def rr(ctx, times: int, *, arg):
                 total_success += success
 
         body = "\n".join(lines)
-
-        if compare_match:
-            suffix = f"Total Success：**{total_success}**"
-        else:
-            suffix = ""
+        suffix = f"Total Success：**{total_success}**" if compare_match else ""
 
         result = shorten_output(body, suffix)
         await ctx.send(f"{mention}\n{result}")
         return
 
-    # ===== dダイス比較式修正 =====
     compare_match = COMPARE_PATTERN.search(expression)
     if compare_match:
         op, target = compare_match.groups()
@@ -198,6 +212,9 @@ async def rr(ctx, times: int, *, arg):
         if total is None:
             return
 
+        if text:
+            expanded_expr = f"{text}：{expanded_expr}"
+
         lines.append(expanded_expr)
         lines.append(f"Total : {total}")
 
@@ -210,11 +227,7 @@ async def rr(ctx, times: int, *, arg):
             total_sum += total
 
     body = "\n".join(lines)
-
-    if compare_match:
-        suffix = f"Success : **{success_total}**"
-    else:
-        suffix = f"Grand Total：**{total_sum}**"
+    suffix = f"Success : **{success_total}**" if compare_match else f"Grand Total：**{total_sum}**"
 
     result = shorten_output(body, suffix)
     await ctx.send(f"{mention}\n{result}")
