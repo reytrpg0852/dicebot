@@ -37,20 +37,37 @@ def safe_eval(expr):
     node = ast.parse(expr, mode="eval")
     return _eval(node.body)
 
+
+# ★ 差し替え済みダイス処理部分
 def roll_dice(expression):
     dice_pattern = r"(\d+)d(\d+)"
-    rolls_detail = []
+    expanded_expr = expression
     total_expr = expression
 
-    for count, sides in re.findall(dice_pattern, expression):
-        count = int(count)
-        sides = int(sides)
+    def replace_once(match):
+        nonlocal expanded_expr, total_expr
+
+        count = int(match.group(1))
+        sides = int(match.group(2))
+
         rolls = [random.randint(1, sides) for _ in range(count)]
-        rolls_detail.append(f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")")
-        total_expr = re.sub(rf"{count}d{sides}", str(sum(rolls)), total_expr, 1)
+        roll_sum = sum(rolls)
+
+        if count == 1:
+            detail = f"{count}d{sides}({rolls[0]})"
+        else:
+            detail = f"{count}d{sides}(" + "+".join(map(str, rolls)) + ")"
+
+        expanded_expr = re.sub(dice_pattern, detail, expanded_expr, count=1)
+        total_expr = re.sub(dice_pattern, str(roll_sum), total_expr, count=1)
+
+        return detail
+
+    re.sub(dice_pattern, replace_once, expression)
 
     total = safe_eval(total_expr)
-    return rolls_detail, total
+    return expanded_expr, total
+
 
 def roll_b_dice(expression, compare=None):
     match = re.match(r"(\d+)b(\d+)(.*)", expression)
@@ -79,17 +96,19 @@ def roll_b_dice(expression, compare=None):
 
     return rolls, None
 
+
 def apply_limit(text, final_line):
     if len(text) <= 500:
         return text
     return text[:50] + "…………\n" + final_line
+
 
 @bot.command()
 async def r(ctx, *, arg=None):
 
     mention = ctx.author.mention
 
-    # ★ 追加機能：!r のみで 1d100
+    # !r のみで 1d100
     if not arg:
         arg = "1d100"
 
@@ -121,19 +140,19 @@ async def r(ctx, *, arg=None):
     if compare_match:
         op, target = compare_match.groups()
         base_expr = expression.split(op)[0]
-        rolls_detail, total = roll_dice(base_expr)
+
+        expanded_expr, total = roll_dice(base_expr)
         success = eval(f"{total}{op}{target}")
 
-        text = "\n".join(rolls_detail)
-        text += f"\nTotal：**{total}**\n"
+        text = f"{expanded_expr}\nTotal：**{total}**\n"
         text += f"**Result**：**{'Success' if success else 'Fail'}**"
         await ctx.send(f"{mention}\n{text}")
         return
 
-    rolls_detail, total = roll_dice(expression)
-    text = "\n".join(rolls_detail)
-    text += f"\nTotal：**{total}**"
+    expanded_expr, total = roll_dice(expression)
+    text = f"{expanded_expr}\nTotal：**{total}**"
     await ctx.send(f"{mention}\n{text}")
+
 
 @bot.command()
 async def rr(ctx, times: int, *, arg):
@@ -174,17 +193,18 @@ async def rr(ctx, times: int, *, arg):
             if compare_match:
                 op, target = compare_match.groups()
                 base_expr = expression.split(op)[0]
-                rolls_detail, total = roll_dice(base_expr)
+
+                expanded_expr, total = roll_dice(base_expr)
                 success = eval(f"{total}{op}{target}")
 
-                output_lines.extend(rolls_detail)
+                output_lines.append(expanded_expr)
                 output_lines.append(f"Total：**{total}**")
                 output_lines.append(f"**Result**：**{'Success' if success else 'Fail'}**")
                 if success:
                     success_total += 1
             else:
-                rolls_detail, total = roll_dice(expression)
-                output_lines.extend(rolls_detail)
+                expanded_expr, total = roll_dice(expression)
+                output_lines.append(expanded_expr)
                 output_lines.append(f"Total：**{total}**")
                 total_sum += total
 
@@ -202,6 +222,7 @@ async def rr(ctx, times: int, *, arg):
     full_text = apply_limit(full_text, final_line)
 
     await ctx.send(f"{mention}\n{full_text}")
+
 
 TOKEN = os.getenv("DISCORD_TOKEN")
 
