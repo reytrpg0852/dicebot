@@ -45,7 +45,7 @@ def safe_eval(expr):
     return _eval(ast.parse(expr, mode="eval").body)
 
 # =========================
-# 500文字制限処理（修正版）
+# 500文字制限処理
 # =========================
 def shorten_output(body, suffix=""):
     full_text = body
@@ -93,31 +93,6 @@ def roll_dice(expression):
     return expanded_expr, safe_eval(total_expr)
 
 # =========================
-# bダイス
-# =========================
-def roll_b_dice(expression, compare=None):
-
-    match = B_PATTERN.match(expression)
-    if not match:
-        return None, None
-
-    count = int(match.group(1))
-    sides = int(match.group(2))
-
-    if count < 1 or count > MAX_DICE:
-        return None, None
-    if sides < 1 or sides > MAX_SIDES:
-        return None, None
-
-    rolls = [random.randint(1, sides) for _ in range(count)]
-
-    if compare:
-        success = sum(1 for r in rolls if eval(f"{r}{compare}"))
-        return rolls, success
-
-    return rolls, None
-
-# =========================
 # !r
 # =========================
 @bot.command()
@@ -127,33 +102,6 @@ async def r(ctx, *, arg=None):
     expression = (arg or "1d100").strip()
     compare_match = COMPARE_PATTERN.search(expression)
 
-    # ---- bダイス ----
-    if "b" in expression:
-        if compare_match:
-            op, target = compare_match.groups()
-            base_expr = expression.split(op)[0]
-            rolls, success = roll_b_dice(base_expr, op + target)
-            if rolls is None:
-                return
-
-            body = f"{base_expr}({','.join(map(str, rolls))}){op}{target}"
-            suffix = f"Result：**{success}success**"
-            result = shorten_output(body, suffix)
-
-            await ctx.send(f"{mention}\n{result}")
-            return
-
-        rolls, _ = roll_b_dice(expression)
-        if rolls is None:
-            return
-
-        body = f"{expression}(" + ",".join(map(str, rolls)) + ")"
-        result = shorten_output(body)
-
-        await ctx.send(f"{mention}\n{result}")
-        return
-
-    # ---- dダイス ----
     expanded_expr, total = roll_dice(expression)
     if total is None:
         return
@@ -169,7 +117,7 @@ async def r(ctx, *, arg=None):
     await ctx.send(f"{mention}\n{result}")
 
 # =========================
-# !rr
+# !rr（修正版）
 # =========================
 @bot.command()
 async def rr(ctx, times: int, *, arg):
@@ -193,6 +141,7 @@ async def rr(ctx, times: int, *, arg):
             return
 
         lines.append(expanded_expr)
+        lines.append(f"Total : {total}")
 
         if compare_match:
             op, target = compare_match.groups()
