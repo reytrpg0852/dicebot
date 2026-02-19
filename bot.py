@@ -117,7 +117,7 @@ async def r(ctx, *, arg=None):
     await ctx.send(f"{mention}\n{result}")
 
 # =========================
-# !rr（修正版）
+# !rr（各回Totalを**で囲う）
 # =========================
 @bot.command()
 async def rr(ctx, times: int, *, arg):
@@ -141,7 +141,7 @@ async def rr(ctx, times: int, *, arg):
             return
 
         lines.append(expanded_expr)
-        lines.append(f"Total : {total}")
+        lines.append(f"Total : **{total}**")
 
         if compare_match:
             op, target = compare_match.groups()
